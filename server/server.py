@@ -26,7 +26,7 @@ class Message(db.Model):
     recipient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Destinatário
     content = db.Column(db.Text, nullable=False)
     room_id = db.Column(db.String(80), nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.now())
+    timestamp = db.Column(db.String(200), default=datetime.now().strftime("(%a, %d %b %Y %H:%M:%S GMT)"))
     duration = db.Column(db.Interval, nullable=False, default=lambda: timedelta(seconds=50))  # Duração padrão
 
     sender = db.relationship('User', foreign_keys=[sender_id], backref='sent_messages')
