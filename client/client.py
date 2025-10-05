@@ -211,7 +211,8 @@ def main_menu(username):
         print(  "╚═════════════════╝")
         print("1 - Add user")
         print("2 - Chat with a friend")
-        print("3 - Exit")
+        print("3 - Group chat")
+        print("0 - Exit")
 
         choice = input("Type your option: ")
 
@@ -233,6 +234,7 @@ def main_menu(username):
             add_user_in_friendlist(username, user_to_add)
         elif choice == "2":
             friend_list = get_friend_list(username)
+            # print friend list
             if friend_list:
                 print("\nFriend list:")
                 for friend in friend_list:
@@ -247,6 +249,31 @@ def main_menu(username):
                 continue
             chat_with_user(username, user_to_talk, room)
         elif choice == "3":
+            friend_list = get_friend_list(username)
+
+            if friend_list:
+                print("\nFriend list:")
+                for friend in friend_list:
+                    print(f" - {friend}")
+            else:
+                print("You have no friends. Loser.")
+
+            group_users = []
+            print("Type the usernames of friends to add to the group chat (type 'done' when finished):")
+
+            while True:
+                user = input("Add user: ")
+                if user.lower() == 'done':
+                    break
+                if is_user_in_friendlist(username, user) and user != username and user not in group_users:
+                    group_users.append(user)
+                else:
+                    print("User not found in your friend list or already on the group.")
+            room = f"room_{'_'.join(sorted([username, *group_users ]))}"
+            for user in group_users:
+                chat_with_user(username, user, room)
+
+        elif choice == "0":
             print("Exiting...")
             break
         else:
