@@ -1,10 +1,11 @@
 from flask_socketio import leave_room
 from datetime import datetime, timedelta
 
+import logging
+import os
 import requests
 import socketio
 import sys
-import os
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.join(current_dir, '..')
@@ -22,20 +23,51 @@ session_keys = {}
 public_keys = {}
 
 
-# ---------- Friendlist Functions -------------
+# ---------- User/Friendlist Functions -------------
+def get_all_users():
+    try:
+        response = requests.get('http://localhost:5000/all_users')
+
+    except requests.exceptions.RequestException as e:
+        return False, f"Connection error with server: {e}"
+
+    if response.ok:
+        all_users = response.json().get("users", [])
+        return all_users
+    else:
+        try:
+            detail = response.json().get("detail", None)
+        except Exception:
+            detail = None
+
+        if response.status_code == 404:
+            return ("Any user founded.")
+        elif response.status_code == 401:
+            return ("Not authorized.")
+        else:
+            return ("Error retrieving users list.")
+
+
 def add_user_in_friendlist(username, username_to_add):
+    if not username_to_add:
+        return False, "Please enter a username."
+
+    if username_to_add == username:
+        return False, "You can not add yourself as friend."
+
     friendlist = get_friend_list(username)
+
     if username_to_add not in friendlist:
         response = requests.post('http://localhost:5000/user', json={
             'username': username,
             'username_to_add': username_to_add
         })
         if response.ok:
-            print("User added successfully!")
+            return True, "User added successfully!"
         else:
-            print("User not found.")
+            return False, "User not found."
     else:
-        print("This user is already in your friend list.")
+        return False, "This user is already in your friend list."
 
 
 def is_user_in_friendlist(username, username_to_talk):
@@ -49,13 +81,52 @@ def is_user_in_friendlist(username, username_to_talk):
 
 
 def get_friend_list(username):
-    response = requests.get(f'http://localhost:5000/friendlist/{username}')
+    try:
+        response = requests.get(f'http://localhost:5000/friendlist/{username}')
+
+    except requests.exceptions.RequestException as e:
+        return False, f"Connection error with server: {e}"
+
     if response.ok:
         friend_list = response.json().get("friends", [])
-        return friend_list
+        return True, friend_list
+
+    detail = None
+    try:
+        detail = response.json().get("detail")
+    except Exception:
+        pass
+
+    if response.status_code == 404:
+        return True, []
+    elif response.status_code == 401:
+        return False, "Not authorized."
     else:
-        print("Error")
-        return []
+        return False, "Error retrieving friend list."
+
+# def get_friend_list(username):
+#     try:
+#         response = requests.get(f'http://localhost:5000/friendlist/{username}')
+#
+#     except requests.exceptions.RequestException as e:
+#         return False, f"Connection error with server: {e}"
+#
+#     if response.ok:
+#         friend_list = response.json().get("friends", [])
+#         return True, "Friends", friend_list
+#     else:
+#         try:
+#             detail = response.json().get("detail", None)
+#         except Exception:
+#             detail = None
+#
+#         if response.status_code == 404:
+#             return False, "Any friend founded.", None
+#         elif response.status_code == 401:
+#             return False, "Not authorized.", None
+#         else:
+#             return False, "Error retrieving friend list.", None
+
 
 
 def request_user_public_key(username_to_talk, room):
@@ -66,26 +137,52 @@ def request_user_public_key(username_to_talk, room):
         return public_key
     else:
         print(f"Error retrieving {username_to_talk} public key.")
+        return
 
 
 # ---------- Chat Functions -------------
 
 def get_message_history(username, room):
-    response = requests.get(f'http://localhost:5000/messages/{username}/{room}')
-    if response.ok:
-        message_history = response.json().get("history_messages", [])
-        message_senders = response.json().get("message_senders", [])
-        message_timestamps = response.json().get("message_timestamps", [])
-        if not message_history:
-            print("No messages in this chat yet. Start the conversation!")
-        else:
-            for message, sender_username, timestamp in zip(message_history, message_senders, message_timestamps):
-                print(f"({timestamp}) {'You' if sender_username == username else sender_username}: {decrypt_chacha20_message(session_keys[room], message)}")
-    else:
-        print(f"Error retrieving message history for room {room}.")
+    try:
+        response = requests.get(f'http://localhost:5000/messages/{username}/{room}')
 
+    except requests.exceptions.RequestException as e:
+        return False, f"Server Connection error: {e}"
+
+    if not response.ok:
+        return False, f"Error retrieving message history for room {room} ({response.status_code})."
+
+
+    message_history = response.json().get("history_messages", [])
+    message_senders = response.json().get("message_senders", [])
+    message_timestamps = response.json().get("message_timestamps", [])
+
+    messages = []
+    if not message_history:
+        return True, []
+
+    for message, sender_username, timestamp in zip(message_history, message_senders, message_timestamps):
+        try:
+            decrypted = decrypt_chacha20_message(session_keys[room], message)
+        except Exception:
+            decrypted = "<error decrypting message>"
+        messages.append({
+            "timestamp": timestamp,
+            "sender": "You" if sender_username == username else sender_username,
+            "text": decrypted
+        })
+    return True, messages
+
+def connect_to_server():
+    if not sio.connected:
+        try:
+            sio.connect("http://localhost:5000")  # ou o IP/porta do seu servidor Flask-SocketIO
+            print("Conexão bem-sucedida!")
+        except Exception as e:
+            print("Erro ao conectar:", e)
 
 def join(username, room):
+    connect_to_server()
     sio.emit('join', {'room': room, 'username': username})
 
 
@@ -116,6 +213,7 @@ def on_receive_session_key(data):
 
 
 def send_message(username, user_to_talk, message, room, timestamp):
+
     encrypted_message = encrypt_chacha20_message(session_keys[room], message)
     sio.emit('send_message', {
         'username': username,
@@ -123,7 +221,6 @@ def send_message(username, user_to_talk, message, room, timestamp):
         'encrypted_message': encrypted_message,
         'room': room,
         'timestamp': timestamp
-
     })
 
 
@@ -138,48 +235,85 @@ def on_receive_message(data):
     print(f"{timestamp} {username}:", decrypted_message)
 
 
-# ---------- User Functions -------------
+# ---------- Autentication -------------
 
-def get_all_users():
-    response = requests.get('http://localhost:5000/all_users')
-    if response.ok:
-        all_users = response.json().get("users", [])
-        return all_users
-    else:
-        print("Error retrieving users list.")
-        return []
-
-
-# Funções de API para registro e login
 def register_user(username, password):
+    if not username or not password:
+        return False, "Inform username and password."
+
+    username = username.strip()
+    password = password.strip()
+
     private_key, public_key = generate_keypair()
+    public_key_str = public_key.decode('utf-8')
+
     global global_private_key
     global_private_key = private_key
-    public_key_str = public_key.decode('utf-8')
-    response = requests.post('http://localhost:5000/register', json={
-        'username': username,
-        'password': password,
-        'public_key': public_key_str
-    })
-    encrypted_data = encrypt_private_key(private_key, password)
-    save_private_key(username=username, encrypted_data=encrypted_data)
-    return response.ok
+
+    try:
+        response = requests.post('http://localhost:5000/register', json={
+            'username': username,
+            'password': password,
+            'public_key': public_key_str
+        })
+
+    except requests.exceptions.RequestException as e:
+        return False, f"Conection error with server: {e}"
+
+    if response.ok:
+        encrypted_data = encrypt_private_key(private_key, password)
+        save_private_key(username=username, encrypted_data=encrypted_data)
+
+        print(encrypted_data)
+        return True, "Register successfully!"
+    else:
+        detail = None
+        try:
+            detail = response.json().get("detail", None)
+        except Exception:
+            pass
+
+        # se for o caso específico de usuário já existente
+        if response.status_code == 409 :
+            return False, "User already exists."
+
+        return False, f"Falha na requisição."
 
 
 def login_user(username, password):
-    response = requests.post('http://localhost:5000/login', json={
-        'username': username,
-        'password': password,
-    })
+    if not username or not password:
+        return False, "Inform username and password."
+    try:
+        response = requests.post('http://localhost:5000/login', json={
+            'username': username,
+            'password': password,
+        })
+
+    except requests.exceptions.RequestException as e:
+        return False, f"Conection error with server: {e}"
+
     if response.ok:
         private_key_encrypted = recover_private_key(username)
         private_key = decrypt_private_key(private_key_encrypted, password)
+
         global global_private_key
         global_private_key = private_key
-        return True, private_key
 
-    print("\nLogin failed. Check your username and password.\n")
-    return False, None
+        print(private_key)
+
+        return True, "Login successfully!"
+    else:
+        print("\nLogin failed. Check your username and password.\n")
+
+        try:
+            # Tenta pegar o campo detail da resposta JSON
+            detail = response.json().get("detail", None)
+        except Exception:
+            detail = None
+        if detail:
+            return False, f"Erro do servidor: {detail}"
+        else:
+            return False, f"Falha na requisição ({response.status_code} ---- {response.text})."
 
 
 # ---------- Interface functions -------------

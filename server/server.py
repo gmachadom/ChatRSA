@@ -1,4 +1,5 @@
-import os
+from http import HTTPStatus
+
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_migrate import Migrate
@@ -6,6 +7,9 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+
+import logging
+import os
 
 load_dotenv()
 db = SQLAlchemy()
@@ -144,8 +148,8 @@ def register():
     public_key = data['public_key']
     password_hash = generate_password_hash(password)
     # error handling
-    # if User.query.filter_by(username=username).first():
-    #     return jsonify({'message': 'User already exists'}), 401
+    if User.query.filter_by(username=username).first():
+        return (jsonify(detail="User already exists."), HTTPStatus.CONFLICT)
     
     user = User(username=username, password_hash=password_hash, public_key=public_key)
     db.session.add(user)
