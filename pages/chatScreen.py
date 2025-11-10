@@ -2,8 +2,7 @@ from datetime import datetime
 import time
 import streamlit as st
 from flask_socketio import leave_room
-from client.client import join, request_user_public_key, get_message_history, wait_for_new_messages, send_message
-from pages.chatGroupScreen import saindo_chat
+from client.client import join, request_user_public_key, get_message_history, leave_room_client, wait_for_new_messages, send_message
 
 userToTalk = st.session_state['userToTalk']
 username = st.session_state["username"]
@@ -21,14 +20,23 @@ hide_sidebar_style = """
 st.markdown(hide_sidebar_style, unsafe_allow_html=True)
 
 with st.sidebar:
+    st.markdown(f"Oi, {username}!")
     st.title("⚙️ Menu")
     if st.button("Main Menu"):
+        leave_room_client(room, username)
+        st.session_state["roomGroup"] = ""
         st.switch_page("pages/mainMenu.py")
     if st.button("Add a friend"):
+        leave_room_client(room, username)
+        st.session_state["roomGroup"] = ""
         st.switch_page("pages/addFriendScreen.py")
     if st.button("Chat with friend"):
+        leave_room_client(room, username)
+        st.session_state["roomGroup"] = ""
         st.switch_page("pages/chatWithFriendMenuScreen.py")
     if st.button("Chat with group"):
+        leave_room_client(room, username)
+        st.session_state["roomGroup"] = ""
         st.switch_page("pages/groupChatMenuScreen.py")
 
 request_user_public_key(userToTalk, room)
@@ -80,6 +88,8 @@ if buttonBack:
             unsafe_allow_html=True
         )
     time.sleep(3)
+    leave_room_client(room, username)
+    st.session_state["roomGroup"] = ""
     st.switch_page("pages/chatWithFriendMenuScreen.py")
 
 #  ----- Loop de atualização -----

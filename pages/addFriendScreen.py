@@ -1,6 +1,8 @@
 import streamlit as st
 from client.client import *
 
+username = st.session_state.get("username")
+
 st.header("Add friend")
 
 # Esconde o menu padrão
@@ -13,6 +15,7 @@ hide_sidebar_style = """
 st.markdown(hide_sidebar_style, unsafe_allow_html=True)
 
 with st.sidebar:
+    st.markdown(f"Oi, {username}!")
     st.title("⚙️ Menu")
     if st.button("Main Menu"):
         st.switch_page("pages/mainMenu.py")
@@ -29,8 +32,6 @@ if isinstance(all_users, tuple):
         st.stop()
     else:
         all_users = all_users
-
-username = st.session_state.get("username")
 
 ok, friend_list = get_friend_list(username)
 if not ok:

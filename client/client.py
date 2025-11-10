@@ -186,6 +186,15 @@ def join(username, room):
     sio.emit('join', {'room': room, 'username': username})
 
 
+def leave_room_client(room, username):
+    if not sio.connected:
+        try:
+            sio.connect("http://localhost:5000")
+        except Exception:
+            pass
+    sio.emit('leave', {'room': room, 'username': username})
+
+
 @sio.on('generate_session_key')
 def generate_session_key(data):
     room = data['room']

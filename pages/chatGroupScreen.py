@@ -1,10 +1,15 @@
 from datetime import datetime
 import time
 import streamlit as st
+from flask_socketio import leave_room
 from client.client import (
-    join, request_user_public_key, get_message_history, wait_for_new_messages, send_message_to_group, send_message,
+    join, request_user_public_key, get_message_history, wait_for_new_messages, leave_room_client, send_message_to_group, send_message,
     request_user_public_key_group
 )
+
+username = st.session_state["username"]
+group_users = st.session_state["listToAddInGroup"]
+room = st.session_state["roomGroup"]
 
 # Esconde o menu padrão
 hide_sidebar_style = """
@@ -16,22 +21,26 @@ hide_sidebar_style = """
 st.markdown(hide_sidebar_style, unsafe_allow_html=True)
 
 with st.sidebar:
+    st.markdown(f"Oi, {username}!")
     st.title("⚙️ Menu")
     if st.button("Main Menu"):
+        leave_room_client(room, username)
+        st.session_state["roomGroup"] = ""
         st.switch_page("pages/mainMenu.py")
     if st.button("Add a friend"):
+        leave_room_client(room, username)
+        st.session_state["roomGroup"] = ""
         st.switch_page("pages/addFriendScreen.py")
     if st.button("Chat with friend"):
+        leave_room_client(room, username)
+        st.session_state["roomGroup"] = ""
         st.switch_page("pages/chatWithFriendMenuScreen.py")
     if st.button("Chat with group"):
+        leave_room_client(room, username)
+        st.session_state["roomGroup"] = ""
         st.switch_page("pages/groupChatMenuScreen.py")
 
-username = st.session_state["username"]
-group_users = st.session_state["listToAddInGroup"]
-room = st.session_state["roomGroup"]
-
-st.header(f"Chat with group")
-
+st.header(f"Group Chat with: {", ".join(sorted(group_users))}")
 
 request_user_public_key_group(group_users, room)
 join(username, room)

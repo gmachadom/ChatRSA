@@ -259,6 +259,15 @@ def on_join(data):
         emit('receive_session_key', {'encrypted_session_key': encrypted_session_key, 'room': room})
 
 
+@socketio.on('leave')
+def on_leave(data):
+    room = data['room']
+    username = data.get('username')  # opcional
+    leave_room(room)
+    # opcional: notificar os demais
+    # emit('system', {'room': room, 'text': f'{username} left'}, to=room)
+
+
 @socketio.on('send_session_key')
 def handle_session_key(data):
     room = data['room']

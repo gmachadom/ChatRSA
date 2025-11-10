@@ -1,5 +1,6 @@
 import streamlit as st
 
+username = st.session_state["username"]
 
 st.header("Main Menu")
 
@@ -13,6 +14,7 @@ hide_sidebar_style = """
 st.markdown(hide_sidebar_style, unsafe_allow_html=True)
 
 with st.sidebar:
+    st.markdown(f"Oi, {username}!")
     st.title("⚙️ Menu")
     if st.button("Add a friend"):
         st.switch_page("pages/addFriendScreen.py")
