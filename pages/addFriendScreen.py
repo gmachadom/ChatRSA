@@ -1,10 +1,25 @@
 import streamlit as st
-from streamlit import switch_page
-
 from client.client import *
-from pages.mainMenu import buttonChatWithFriend
 
 st.header("Add friend")
+
+# Esconde o menu padrão
+hide_sidebar_style = """
+    <style>
+    [data-testid="stSidebarNav"] {display: none;}
+    </style>
+"""
+
+st.markdown(hide_sidebar_style, unsafe_allow_html=True)
+
+with st.sidebar:
+    st.title("⚙️ Menu")
+    if st.button("Main Menu"):
+        st.switch_page("pages/mainMenu.py")
+    if st.button("Chat with friend"):
+        st.switch_page("pages/chatWithFriendMenuScreen.py")
+    if st.button("Chat with group"):
+        st.switch_page("pages/groupChatMenuScreen.py")
 
 all_users = get_all_users()
 if isinstance(all_users, tuple):
@@ -16,7 +31,12 @@ if isinstance(all_users, tuple):
         all_users = all_users
 
 username = st.session_state.get("username")
-friend_list = get_friend_list(username)
+
+ok, friend_list = get_friend_list(username)
+if not ok:
+    st.error(friend_list)
+    st.stop()
+friend_list = friend_list or []
 
 all_users_set = set(all_users) - {username}
 all_users_available = list(set(all_users_set) - set(friend_list))
@@ -45,6 +65,9 @@ if submitted_add:
 st.markdown("---")
 
 buttonChatWithFriend = st.button("Start a chat with Friend", use_container_width=True)
-
 if buttonChatWithFriend:
     st.switch_page("pages/chatWithFriendMenuScreen.py")
+
+buttonChatWithGroup = st.button("Start a chat with group", use_container_width=True)
+if buttonChatWithGroup:
+    st.switch_page("pages/groupChatMenuScreen.py")

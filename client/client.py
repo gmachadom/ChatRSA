@@ -6,6 +6,7 @@ import os
 import requests
 import socketio
 import sys
+import time
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.join(current_dir, '..')
@@ -104,30 +105,6 @@ def get_friend_list(username):
     else:
         return False, "Error retrieving friend list."
 
-# def get_friend_list(username):
-#     try:
-#         response = requests.get(f'http://localhost:5000/friendlist/{username}')
-#
-#     except requests.exceptions.RequestException as e:
-#         return False, f"Connection error with server: {e}"
-#
-#     if response.ok:
-#         friend_list = response.json().get("friends", [])
-#         return True, "Friends", friend_list
-#     else:
-#         try:
-#             detail = response.json().get("detail", None)
-#         except Exception:
-#             detail = None
-#
-#         if response.status_code == 404:
-#             return False, "Any friend founded.", None
-#         elif response.status_code == 401:
-#             return False, "Not authorized.", None
-#         else:
-#             return False, "Error retrieving friend list.", None
-
-
 
 def request_user_public_key(username_to_talk, room):
     response = requests.get(f'http://localhost:5000/public_key/{username_to_talk}')
@@ -139,6 +116,16 @@ def request_user_public_key(username_to_talk, room):
         print(f"Error retrieving {username_to_talk} public key.")
         return
 
+def request_user_public_key_group(group_to_talk, room):
+    for friend in group_to_talk:
+        response = requests.get(f'http://localhost:5000/public_key/{friend}')
+        if response.ok:
+            public_key = response.json().get("user_public_key")
+            public_keys[room] = public_key
+            return public_key
+        else:
+            print(f"Error retrieving {friend} public key.")
+            return
 
 # ---------- Chat Functions -------------
 
@@ -172,6 +159,19 @@ def get_message_history(username, room):
             "text": decrypted
         })
     return True, messages
+
+
+def wait_for_new_messages(username: str, room: str, old_len: int, timeout: float = 15.0, interval: float = 1.5):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        ok2, hist2 = get_message_history(username, room)
+        if ok2:
+            new_len = len(hist2)
+            if new_len > old_len:
+                return True
+        time.sleep(interval)
+    return False
+
 
 def connect_to_server():
     if not sio.connected:
@@ -211,6 +211,18 @@ def on_receive_session_key(data):
         session_key = decrypt_session_key(session_key_encrypted, room)
         session_keys[room] = session_key
 
+
+def send_message_to_group(username, group_to_talk, message, room, timestamp):
+
+    for friend in group_to_talk:
+        encrypted_message = encrypt_chacha20_message(session_keys[room], message)
+        sio.emit('send_message', {
+            'username': username,
+            'user_to_talk': friend,
+            'encrypted_message': encrypted_message,
+            'room': room,
+            'timestamp': timestamp
+        })
 
 def send_message(username, user_to_talk, message, room, timestamp):
 

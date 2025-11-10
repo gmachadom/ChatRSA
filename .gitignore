@@ -207,7 +207,10 @@ marimo/_lsp/
 __marimo__/
 
 .idea/
-site.db
+
 users_key/
 server/migrations/
 session_keys/
+
+pages/chatComponente.py
+site.db

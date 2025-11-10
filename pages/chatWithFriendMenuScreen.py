@@ -5,6 +5,24 @@ from client.client import get_friend_list, is_user_in_friendlist
 
 st.header("Chat with Friend")
 
+# Esconde o menu padrão
+hide_sidebar_style = """
+    <style>
+    [data-testid="stSidebarNav"] {display: none;}
+    </style>
+"""
+
+st.markdown(hide_sidebar_style, unsafe_allow_html=True)
+
+with st.sidebar:
+    st.title("⚙️ Menu")
+    if st.button("Main Menu"):
+        st.switch_page("pages/mainMenu.py")
+    if st.button("Add a friend"):
+        st.switch_page("pages/addFriendScreen.py")
+    if st.button("Chat with group"):
+        st.switch_page("pages/groupChatMenuScreen.py")
+
 username = st.session_state.get("username")
 
 with st.spinner("Loading your friends..."):
