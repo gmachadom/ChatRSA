@@ -1,9 +1,17 @@
 import streamlit as st
-from client.client import *
+import sys
+import os
+import time
 
-username = st.session_state.get("username")
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
-st.header("Add friend")
+from client.client import (
+    get_all_users,
+    get_friend_list,
+    send_friend_request
+)
 
 # Esconde o menu padrão
 hide_sidebar_style = """
@@ -14,61 +22,68 @@ hide_sidebar_style = """
 
 st.markdown(hide_sidebar_style, unsafe_allow_html=True)
 
-with st.sidebar:
-    st.markdown(f"Oi, {username}!")
-    st.title("⚙️ Menu")
-    if st.button("Main Menu"):
-        st.switch_page("pages/mainMenu.py")
-    if st.button("Chat with friend"):
-        st.switch_page("pages/chatWithFriendMenuScreen.py")
-    if st.button("Chat with group"):
-        st.switch_page("pages/groupChatMenuScreen.py")
+username = st.session_state.get("username")
 
+if not username:
+    st.error("Please log in first")
+    st.switch_page("pages/loginScreen.py")
+
+st.header("➕ Send Friend Request")
+
+# Get all users
 all_users = get_all_users()
 if isinstance(all_users, tuple):
     ok, all_users = all_users
     if not ok:
-        st.error(all_users)
-        st.stop()
-    else:
-        all_users = all_users
+        st.error("Error retrieving users")
+        all_users = []
 
+# Get friend list
 ok, friend_list = get_friend_list(username)
 if not ok:
-    st.error(friend_list)
-    st.stop()
+    st.error("Error retrieving friend list")
+    friend_list = []
+
 friend_list = friend_list or []
 
-all_users_set = set(all_users) - {username}
+# Calculate available users (not self, not already friend)
+all_users_set = set(all_users) - {username} if all_users else set()
 all_users_available = list(set(all_users_set) - set(friend_list))
 
 if all_users_available:
-    st.write("All users:")
+    st.write(f"**{len(all_users_available)} user(s) available:**")
     for u in all_users_available:
-        st.write(f"- {u}")
+        st.write(f"• {u}")
 else:
-    st.info("No users available to add")
+    st.info("No users available to add (you're already friends with everyone or no other users exist)")
 
-st.markdown("---")
+st.divider()
 
-# Add friend
-with st.form("add_friend_form", clear_on_submit=True):
-    user_to_add = st.text_input("Username:")
-    submitted_add = st.form_submit_button("Add friend")
+# Send friend request
+with st.form("send_request_form", clear_on_submit=True):
+    user_to_add = st.text_input("Enter username:")
+    submitted = st.form_submit_button("Send Friend Request")
 
-if submitted_add:
-    ok, msg = add_user_in_friendlist(username, user_to_add)
-    if ok:
-        st.success(msg)
+if submitted:
+    if not user_to_add:
+        st.error("Please enter a username")
     else:
-        st.error(msg)
+        ok, msg = send_friend_request(username, user_to_add)
+        if ok:
+            st.success(msg)
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error(msg)
 
-st.markdown("---")
+st.divider()
 
-buttonChatWithFriend = st.button("Start a chat with Friend", use_container_width=True)
-if buttonChatWithFriend:
-    st.switch_page("pages/chatWithFriendMenuScreen.py")
+# Navigation
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("← Back to Menu", use_container_width=True):
+        st.switch_page("pages/mainMenu.py")
 
-buttonChatWithGroup = st.button("Start a chat with group", use_container_width=True)
-if buttonChatWithGroup:
-    st.switch_page("pages/groupChatMenuScreen.py")
+with col2:
+    if st.button("👥 View Requests", use_container_width=True):
+        st.switch_page("pages/friendRequestsScreen.py")

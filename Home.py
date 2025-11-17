@@ -33,16 +33,16 @@ url = "http://127.0.0.1:5000/"
 
 st.set_page_config(page_title="ChatAPP")
 
-st.title("💬 ChatAPP")
+st.title("RSApp")
 
-st.markdown("Welcome to ChatAPP - your safety chat with end to end encrypt!")
+st.markdown("Safe and Encrypted E2E Chat Application")
 
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     st.write("")  # espaço
     st.write("Choose one option:")
-    login_btn = st.button("🔐 Login", use_container_width=True)
-    register_btn = st.button("📝 Register", use_container_width=True)
+    login_btn = st.button("Login", use_container_width=True)
+    register_btn = st.button("Register", use_container_width=True)
 
 if login_btn:
     st.switch_page("pages/loginScreen.py")

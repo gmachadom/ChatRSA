@@ -8,6 +8,11 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 import os
 import base64
+from logger_config import (
+    log_key_generated, log_public_key_saved, log_private_key_stored,
+    log_session_key_encrypted, log_session_key_decrypted,
+    log_message_encrypted, log_message_decrypted, log_error, log_debug
+)
 
 
 RSA_KEY_SIZE = 2048
@@ -16,6 +21,7 @@ RSA_KEY_SIZE = 2048
 def generate_keypair():
     private_key = RSA.generate(RSA_KEY_SIZE)
     public_key = private_key.publickey()
+    log_key_generated("RSA 2048-bit", "Memória", "utils.py", "generate_keypair")
     return private_key.export_key(), public_key.export_key()
 
 
@@ -32,6 +38,7 @@ def encrypt_with_public_key(data, public_key_pem):
             label=None
         )
     )
+    log_debug("Dados criptografados com RSA - chave pública utilizada", "utils.py", "encrypt_with_public_key")
     return base64.b64encode(encrypted_data).decode('utf-8')
 
 
@@ -43,12 +50,14 @@ def decrypt_with_private_key(encrypted_data, private_key_pem, password=None):
     try:
         encrypted_data_bytes = base64.b64decode(encrypted_data)
     except Exception as e:
+        log_error("Falha ao decodificar encrypted_data - não é um Base64 válido", "utils.py", "decrypt_with_private_key", str(e))
         raise ValueError("Falha ao decodificar encrypted_data: não é um Base64 válido.") from e
 
     # Valida a chave privada PEM
     if isinstance(private_key_pem, str):
         private_key_pem = private_key_pem.encode('utf-8')
     if not private_key_pem.startswith(b"-----BEGIN RSA PRIVATE KEY-----"):
+        log_error("Chave privada inválida ou não está no formato PEM", "utils.py", "decrypt_with_private_key")
         raise ValueError("Chave privada inválida ou não está no formato PEM.")
 
     # Carrega a chave privada
@@ -58,6 +67,7 @@ def decrypt_with_private_key(encrypted_data, private_key_pem, password=None):
             password=password.encode('utf-8') if password else None
         )
     except ValueError as e:
+        log_error("Falha ao carregar a chave privada", "utils.py", "decrypt_with_private_key", str(e))
         raise ValueError("Falha ao carregar a chave privada. Verifique a senha ou o formato da chave.") from e
 
     # Descriptografa os dados
@@ -70,7 +80,9 @@ def decrypt_with_private_key(encrypted_data, private_key_pem, password=None):
                 label=None
             )
         )
+        log_debug("Dados descriptografados com RSA - chave privada utilizada", "utils.py", "decrypt_with_private_key")
     except ValueError as e:
+        log_error("Erro na descriptografia", "utils.py", "decrypt_with_private_key", str(e))
         raise ValueError("Erro na descriptografia: verifique os dados criptografados e a chave privada.") from e
 
     return decrypted_data
@@ -81,6 +93,7 @@ def encrypt_chacha20_message(key, message):
     cipher = Cipher(algorithms.ChaCha20(key, nonce), mode=None, backend=default_backend())
     encryptor = cipher.encryptor()
     ciphertext = encryptor.update(message.encode()) + encryptor.finalize()
+    log_debug("Mensagem criptografada com ChaCha20", "utils.py", "encrypt_chacha20_message")
     return base64.b64encode(nonce + ciphertext).decode('utf-8')
 
 
@@ -89,6 +102,7 @@ def decrypt_chacha20_message(key, encrypted_message):
     nonce, ciphertext = decoded_data[:16], decoded_data[16:]
     cipher = Cipher(algorithms.ChaCha20(key, nonce), mode=None, backend=default_backend())
     decryptor = cipher.decryptor()
+    log_debug("Mensagem descriptografada com ChaCha20", "utils.py", "decrypt_chacha20_message")
     return (decryptor.update(ciphertext) + decryptor.finalize()).decode('utf-8')
 
 
@@ -139,11 +153,11 @@ def save_private_key(encrypted_data, username):
         with open(file_path, "wb") as f:
             pickle.dump(encrypted_data, f)
 
-        print("DEBUG: A chave privada foi armazenada do lado do cliente")
+        log_private_key_stored(username, f"Arquivo: {file_path}", "utils.py", "save_private_key")
         return True
 
     except (OSError, pickle.PickleError) as e:
-        print(f"Erro ao salvar a chave privada criptografada: {e}")
+        log_error(f"Erro ao salvar a chave privada criptografada", "utils.py", "save_private_key", str(e))
         return False
 
 
@@ -153,14 +167,20 @@ def recover_private_key(username):
         file_path = f"users_key/{filename}"
         with open(file_path, "rb") as f:
             loaded_encrypted_data = pickle.load(f)
+        log_debug(f"Chave privada recuperada do arquivo: {file_path}", "utils.py", "recover_private_key")
         return loaded_encrypted_data
 
     except (OSError, pickle.PickleError) as e:
-        print(f"Erro ao abrir a chave privada criptografada: {e}")
+        log_error(f"Erro ao abrir a chave privada criptografada", "utils.py", "recover_private_key", str(e))
         return False
 
 
+# ============ FUNÇÕES DESCONTINUADAS (SIMPLIFICAÇÃO) ============
+# As funções abaixo foram descontinuadas para simplificar o sistema
+# Session keys são agora transferidas apenas com RSA, sem camada adicional
+
 def encrypt_session_key(session_key: bytes, room: str) -> dict:
+    """DESCONTINUADA: Não mais usada após simplificação"""
     salt = os.urandom(16)
     key = derive_key(room, salt)
     nonce = os.urandom(12)
@@ -176,6 +196,7 @@ def encrypt_session_key(session_key: bytes, room: str) -> dict:
 
 
 def decrypt_session_key(encrypted_data: dict, room: str) -> bytes:
+    """DESCONTINUADA: Não mais usada após simplificação"""
     salt = encrypted_data['salt']
     nonce = encrypted_data['nonce']
     encrypted_key = encrypted_data['encrypted_key']
@@ -186,7 +207,7 @@ def decrypt_session_key(encrypted_data: dict, room: str) -> bytes:
 
 
 def save_session_key(encrypted_data, room):
-    # Sem alterações.
+    """DESCONTINUADA: Não mais usada após simplificação"""
     filename = f"{room}_session_key.bin"
     file_path = f"session_keys/{filename}"
     try:
@@ -206,6 +227,7 @@ def save_session_key(encrypted_data, room):
 
 
 def recover_session_key(room):
+    """DESCONTINUADA: Não mais usada após simplificação"""
     try:
         filename = f"{room}_session_key.bin"
         file_path = f"session_keys/{filename}"

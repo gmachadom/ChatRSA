@@ -22,21 +22,25 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from client.client import register_user
+from logger_config import log_debug
 
 st.header("Register")
 
 with st.form("register_form"):
-    username = st.text_input("username")
-    password = st.text_input("password", type="password")
-    submitted = st.form_submit_button("Registrar")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    submitted = st.form_submit_button("Register")
 
 if submitted:
+    log_debug(f"Formulário de registro submetido - Username: {username}", "registrationScreen.py", "form_submit")
     ok, msg = register_user(username, password)
     if ok:
         st.success(msg)
+        log_debug(f"Registro bem-sucedido - Redirecionando para login", "registrationScreen.py", "register_success")
         time.sleep(2)
         st.switch_page("pages/loginScreen.py")
     else:
+        log_debug(f"Erro no registro - {msg}", "registrationScreen.py", "register_error")
         st.error(msg)
 
 login_btn = st.button("I already have an account", use_container_width=True)
