@@ -18,7 +18,8 @@ A secure end-to-end encrypted chat application where the server cannot read any 
 
 ### Clone and Setup Environment
 
-```bashurce venv/bin/activate
+```bash
+source venv/bin/activate
 git clone
 cd ChatRSA
 nv file.
@@ -32,11 +33,6 @@ rver/server.py
 source venv/bin/activate
 ```
 
-p install -r requirements.txt
-
-### Create .env File
-
-````bashdb migrate -m "message"
 
 
 
