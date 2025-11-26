@@ -384,12 +384,9 @@ def generate_session_key(data):
     """
     🔗 HANDSHAKE EM CADEIA - Primeira pessoa gera a session key
     
-    FLUXO:
-    1. ALICE (primeira) gera session_key e criptografa com RSA de BOB (primeira amigo)
-    2. ALICE armazena a chave em session_keys[room] (não-criptografada, local)
-    3. ALICE fica escutando por 'new_participant_joined' do servidor
-    4. Quando CARLOS chega: ALICE descriptografa, re-criptografa para CARLOS, envia
-    5. CARLOS descriptografa com sua chave privada
+    Suporta AMBOS:
+    - Chat 1-a-1: public_keys[room] = STRING (chave pública do outro)
+    - Chat grupo: public_keys[room] = DICT {'user1': key, 'user2': key, ...}
     """
     room = data['room']
     username = data.get('username')
@@ -397,20 +394,24 @@ def generate_session_key(data):
     
     log_session_key_generated(room, "client.py", "generate_session_key")
     
-    # Criptografa com RSA do PRIMEIRO amigo (BOB)
-    if room in public_keys and public_keys[room] and isinstance(public_keys[room], dict):
-        # public_keys[room] é agora um dicionário: {'amigo1': key, 'amigo2': key, ...}
-        # Pega a primeira chave do dicionário
-        first_friend_key = next(iter(public_keys[room].values()), None)
-        
-        if first_friend_key:
-            try:
+    if room in public_keys and public_keys[room]:
+        try:
+            # Verifica o tipo de armazenamento
+            if isinstance(public_keys[room], dict):
+                # Chat de grupo: pega a primeira chave do dicionário
+                first_friend_key = next(iter(public_keys[room].values()), None)
+                first_friend_name = next(iter(public_keys[room].keys()), "Unknown")
+            else:
+                # Chat 1-a-1: public_keys[room] é uma string (a chave pública)
+                first_friend_key = public_keys[room]
+                first_friend_name = data.get('user_to_talk', 'Unknown')
+            
+            if first_friend_key:
                 encrypted_session_key_with_public_key = encrypt_with_public_key(
                     session_keys[room],
                     first_friend_key
                 )
                 
-                first_friend_name = next(iter(public_keys[room].keys()), "Unknown")
                 log_session_key_encrypted(f"{first_friend_name} (segundo participante)", room, "client.py", "generate_session_key")
                 
                 sio.emit('send_session_key', {
@@ -420,17 +421,17 @@ def generate_session_key(data):
                 })
                 
                 log_debug(
-                    f"ALICE: Gerei session_key para {room} e criptografei com RSA de {first_friend_name}. Aguardando novos participantes...",
+                    f"Session key gerada e criptografada para {first_friend_name}. Aguardando...",
                     "client.py", "generate_session_key"
                 )
-            except Exception as e:
-                log_error(f"Erro ao criptografar session key", "client.py", "generate_session_key", str(e))
-                print(f"❌ Erro ao criptografar: {e}")
-        else:
-            log_error("Nenhuma chave pública encontrada", "client.py", "generate_session_key", f"Room: {room}")
-            print(f"⚠️  No public keys found for room {room}")
+            else:
+                log_error("Nenhuma chave pública encontrada", "client.py", "generate_session_key", f"Room: {room}")
+                print(f"⚠️  No public keys found for room {room}")
+        except Exception as e:
+            log_error(f"Erro ao criptografar session key", "client.py", "generate_session_key", str(e))
+            print(f"❌ Erro ao criptografar: {e}")
     else:
-        log_error("Estrutura de chaves públicas inválida", "client.py", "generate_session_key", f"Room: {room}")
+        log_error("Estrutura de chaves públicas inválida ou ausente", "client.py", "generate_session_key", f"Room: {room}")
         print(f"⚠️  Public keys not properly loaded for room {room}")
 
 

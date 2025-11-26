@@ -774,6 +774,9 @@ def handle_send_message(data):
     """
     Recebe mensagem criptografada e armazena.
     Suporta tanto mensagens 1-a-1 quanto mensagens de grupo.
+    
+    - Chat 1-a-1: user_to_talk é o nome do outro usuário
+    - Chat grupo: user_to_talk é None
     """
     encrypted_message = data['encrypted_message']
     username = data['username']
@@ -781,27 +784,39 @@ def handle_send_message(data):
     room = data['room']
     timestamp = data['timestamp']
     
-    # SEGURANÇA: Validar que a sessão ainda está ativa
-    session = Session.query.filter_by(room_name=room).first()
-    if not session or not session.is_active:
-        log_error("Tentativa de enviar mensagem em sessão inativa ou inexistente", "server.py", "handle_send_message", f"Room: {room}, Session ativa: {session.is_active if session else False}")
-        emit('error', {'message': 'Chat session has ended or is no longer active'})
-        return
+    # Determina o tipo de chat
+    is_group_chat = user_to_talk is None
     
+    # Validação de segurança depende do tipo de chat
+    if is_group_chat:
+        # Chat de grupo: valida se a Session existe e está ativa
+        session = Session.query.filter_by(room_name=room).first()
+        if not session or not session.is_active:
+            log_error("Tentativa de enviar mensagem em sessão de grupo inativa ou inexistente", "server.py", "handle_send_message", f"Room: {room}")
+            emit('error', {'message': 'Chat session has ended or is no longer active'})
+            return
+    
+    # Processa IDs de usuário
     try:
-        sender_id, recipient_id = extract_user_ids(username, user_to_talk or username)
-    except:
-        log_error("Falha ao processar IDs de usuários", "server.py", "handle_send_message", f"De: {username}, Para: {user_to_talk}")
+        if is_group_chat:
+            # Para chats de grupo, recipient_id é o mesmo do sender (apenas log)
+            sender_id, recipient_id = extract_user_ids(username, username)
+        else:
+            # Para chats 1-a-1, recipient_id é o do outro usuário
+            sender_id, recipient_id = extract_user_ids(username, user_to_talk)
+    except Exception as e:
+        log_error("Falha ao processar IDs de usuários", "server.py", "handle_send_message", f"De: {username}, Para: {user_to_talk}, Erro: {str(e)}")
         emit('error', {'message': 'Failed to process message'})
         return
     
+    # Armazena a mensagem
     add_message(sender_id, recipient_id, encrypted_message, room, timestamp=timestamp)
     
     # Log apropriado para tipo de chat
-    if user_to_talk:
-        log_message_encrypted(username, user_to_talk, room, "server.py", "handle_send_message")
-    else:
+    if is_group_chat:
         log_message_encrypted(username, "group", room, "server.py", "handle_send_message")
+    else:
+        log_message_encrypted(username, user_to_talk, room, "server.py", "handle_send_message")
     
     # Distribui para TODOS na sala EXCETO o remetente
     # (O remetente já vê a mensagem localmente)
