@@ -275,15 +275,31 @@ def request_user_public_key(username_to_talk, room):
         return
 
 def request_user_public_key_group(group_to_talk, room):
+    """
+    Busca e armazena as chaves públicas de TODOS os participantes do grupo.
+    
+    Armazena em public_keys como dicionário:
+    public_keys[room] = {
+        'username1': 'RSA_PUBLIC_KEY_1',
+        'username2': 'RSA_PUBLIC_KEY_2',
+        ...
+    }
+    """
+    if room not in public_keys:
+        public_keys[room] = {}
+    
     for friend in group_to_talk:
-        response = requests.get(f'http://localhost:5000/public_key/{friend}')
-        if response.ok:
-            public_key = response.json().get("user_public_key")
-            public_keys[room] = public_key
-            return public_key
-        else:
-            print(f"Error retrieving {friend} public key.")
-            return
+        try:
+            response = requests.get(f'http://localhost:5000/public_key/{friend}')
+            if response.ok:
+                public_key = response.json().get("user_public_key")
+                # Armazena a chave do amigo mapeada por seu username
+                public_keys[room][friend] = public_key
+                print(f"✅ Chave pública recebida para {friend}")
+            else:
+                print(f"❌ Erro ao buscar chave pública de {friend}")
+        except Exception as e:
+            print(f"❌ Erro ao buscar chave pública de {friend}: {e}")
 
 # ---------- Chat Functions -------------
 
@@ -366,45 +382,188 @@ def leave_room_client(room, username, user_id):
 @sio.on('generate_session_key')
 def generate_session_key(data):
     """
-    Gera nova session key quando é o primeiro a entrar.
-    SIMPLIFICADO: Apenas usa RSA para trocar chave, sem ChaCha20 adicional.
+    🔗 HANDSHAKE EM CADEIA - Primeira pessoa gera a session key
+    
+    FLUXO:
+    1. ALICE (primeira) gera session_key e criptografa com RSA de BOB (primeira amigo)
+    2. ALICE armazena a chave em session_keys[room] (não-criptografada, local)
+    3. ALICE fica escutando por 'new_participant_joined' do servidor
+    4. Quando CARLOS chega: ALICE descriptografa, re-criptografa para CARLOS, envia
+    5. CARLOS descriptografa com sua chave privada
     """
     room = data['room']
-    session_keys[room] = os.urandom(32)  # Gera chave aleatória
+    username = data.get('username')
+    session_keys[room] = os.urandom(32)  # Gera chave aleatória de 32 bytes
     
     log_session_key_generated(room, "client.py", "generate_session_key")
     
-    # Criptografa com RSA para enviar ao próximo usuário
-    encrypted_session_key_with_public_key = encrypt_with_public_key(
-        session_keys[room],
-        public_keys[room]
-    )
+    # Criptografa com RSA do PRIMEIRO amigo (BOB)
+    if room in public_keys and public_keys[room] and isinstance(public_keys[room], dict):
+        # public_keys[room] é agora um dicionário: {'amigo1': key, 'amigo2': key, ...}
+        # Pega a primeira chave do dicionário
+        first_friend_key = next(iter(public_keys[room].values()), None)
+        
+        if first_friend_key:
+            try:
+                encrypted_session_key_with_public_key = encrypt_with_public_key(
+                    session_keys[room],
+                    first_friend_key
+                )
+                
+                first_friend_name = next(iter(public_keys[room].keys()), "Unknown")
+                log_session_key_encrypted(f"{first_friend_name} (segundo participante)", room, "client.py", "generate_session_key")
+                
+                sio.emit('send_session_key', {
+                    'encrypted_session_key': encrypted_session_key_with_public_key,
+                    'room': room,
+                    'username': username
+                })
+                
+                log_debug(
+                    f"ALICE: Gerei session_key para {room} e criptografei com RSA de {first_friend_name}. Aguardando novos participantes...",
+                    "client.py", "generate_session_key"
+                )
+            except Exception as e:
+                log_error(f"Erro ao criptografar session key", "client.py", "generate_session_key", str(e))
+                print(f"❌ Erro ao criptografar: {e}")
+        else:
+            log_error("Nenhuma chave pública encontrada", "client.py", "generate_session_key", f"Room: {room}")
+            print(f"⚠️  No public keys found for room {room}")
+    else:
+        log_error("Estrutura de chaves públicas inválida", "client.py", "generate_session_key", f"Room: {room}")
+        print(f"⚠️  Public keys not properly loaded for room {room}")
+
+
+@sio.on('new_participant_joined')
+def on_new_participant_joined(data):
+    """
+    🔗 HANDSHAKE EM CADEIA - Notificação que um novo participante entrou
     
-    log_session_key_encrypted("Próximo participante", room, "client.py", "generate_session_key")
+    ALICE recebe essa notificação quando CARLOS entra.
+    ALICE então:
+    1. Descriptografa a session_key com sua chave privada (ela tem!)
+    2. Re-criptografa com RSA de CARLOS
+    3. Envia para o servidor, que distribui para CARLOS
+    """
+    room = data['room']
+    new_username = data['new_username']
+    new_participant_key = data.get('new_public_key')
     
-    sio.emit('send_session_key', {
-        'encrypted_session_key': encrypted_session_key_with_public_key,
-        'room': room
-    })
+    # Verifica se THIS CLIENT foi quem gerou a chave (é o primeiro?)
+    if room in session_keys:
+        # ✅ Sim, este cliente tem a chave não-criptografada em memória
+        
+        log_debug(
+            f"Novo participante entrou na sala {room}: {new_username}. Vou re-criptografar a chave...",
+            "client.py", "on_new_participant_joined"
+        )
+        
+        # Se há chave pública do novo participante, usa
+        if new_participant_key:
+            try:
+                # Re-criptografa para o novo participante
+                reencrypted_key = encrypt_with_public_key(
+                    session_keys[room],
+                    new_participant_key
+                )
+                
+                log_debug(
+                    f"Session key re-criptografada para {new_username}",
+                    "client.py", "on_new_participant_joined"
+                )
+                
+                # Armazena também a chave pública do novo participante localmente
+                if room in public_keys and isinstance(public_keys[room], dict):
+                    public_keys[room][new_username] = new_participant_key
+                
+                # Envia ao servidor, que distribui para o novo
+                sio.emit('send_reencrypted_session_key', {
+                    'room': room,
+                    'new_username': new_username,
+                    'encrypted_session_key': reencrypted_key,
+                    'from_username': 'first_participant'
+                })
+            except Exception as e:
+                log_error(
+                    f"Erro ao re-criptografar para {new_username}",
+                    "client.py", "on_new_participant_joined", str(e)
+                )
+        else:
+            log_debug(
+                f"⚠️  Chave pública de {new_username} não foi recebida",
+                "client.py", "on_new_participant_joined"
+            )
+
 
 
 @sio.on('receive_session_key')
 def on_receive_session_key(data):
     """
     Recebe session key criptografada com RSA.
-    Descriptografa com chave privada.
+    BOB (segundo participante) recebe aqui a chave criptografada por ALICE
     """
     encrypted_session_key = data['encrypted_session_key']
     room = data['room']
+    username = data.get('username')
 
-    # Descriptografa com chave privada (RSA)
-    session_keys[room] = decrypt_with_private_key(
-        encrypted_session_key,
-        global_private_key
-    )
+    try:
+        # Tenta descriptografar com sua chave privada (RSA)
+        session_keys[room] = decrypt_with_private_key(
+            encrypted_session_key,
+            global_private_key
+        )
+        log_session_key_decrypted(username or "Usuário atual", room, "client.py", "on_receive_session_key")
+        print(f"✅ Session key received and decrypted for room: {room}")
+    except Exception as e:
+        # Se falhar, significa a chave foi criptografada com outra chave pública
+        log_error(f"Não conseguiu descriptografar a session key", "client.py", "on_receive_session_key", str(e))
+        print(f"⚠️  Failed to decrypt session key: {e}")
+        print(f"⚠️  This key was encrypted for another participant...")
+
+
+@sio.on('receive_reencrypted_session_key')
+def on_receive_reencrypted_session_key(data):
+    """
+    🔗 HANDSHAKE EM CADEIA - CARLOS recebe a chave re-criptografada
     
-    log_session_key_decrypted("Usuário atual", room, "client.py", "on_receive_session_key")
-    print(f"✅ Session key received for room: {room}")
+    CARLOS (terceiro ou posterior) recebe a session_key que ALICE re-criptografou
+    especialmente com sua chave pública. Apenas CARLOS consegue descriptografar.
+    """
+    encrypted_session_key = data['encrypted_session_key']
+    room = data['room']
+    from_username = data.get('from_username', 'participant')
+    
+    try:
+        # Descriptografa com sua chave privada (RSA)
+        session_keys[room] = decrypt_with_private_key(
+            encrypted_session_key,
+            global_private_key
+        )
+        
+        log_session_key_decrypted(
+            f"CARLOS (via re-encryption de {from_username})",
+            room,
+            "client.py",
+            "on_receive_reencrypted_session_key"
+        )
+        
+        log_debug(
+            f"✅ CARLOS: Recebi session_key re-criptografada e descriptografei com sucesso!",
+            "client.py", "on_receive_reencrypted_session_key"
+        )
+        
+        print(f"✅ Reencrypted session key received, decrypted, and stored for room: {room}")
+        
+    except Exception as e:
+        log_error(
+            f"Erro ao descriptografar session_key re-criptografada",
+            "client.py",
+            "on_receive_reencrypted_session_key",
+            str(e)
+        )
+        print(f"❌ Failed to decrypt reencrypted session key: {e}")
+
+
 
 
 # Handler for accepted chat invitations coming from server
@@ -450,17 +609,25 @@ def on_session_invalidated(data):
 
 
 def send_message_to_group(username, group_to_talk, message, room, timestamp):
-
-    for friend in group_to_talk:
-        encrypted_message = encrypt_chacha20_message(session_keys[room], message)
-        log_message_encrypted(username, friend, room, "client.py", "send_message_to_group")
-        sio.emit('send_message', {
-            'username': username,
-            'user_to_talk': friend,
-            'encrypted_message': encrypted_message,
-            'room': room,
-            'timestamp': timestamp
-        })
+    """
+    Envia mensagem para uma sala de grupo.
+    
+    ✅ CORRETO: Envia UMA ÚNICA mensagem para a room (sala)
+    ❌ ERRADO: Enviar para cada amigo individualmente (causava duplicação)
+    
+    O servidor recebe uma mensagem e distribui para TODOS na sala.
+    """
+    encrypted_message = encrypt_chacha20_message(session_keys[room], message)
+    log_message_encrypted(username, "group", room, "client.py", "send_message_to_group")
+    
+    # Envia para a SALA (room), não para cada amigo
+    sio.emit('send_message', {
+        'username': username,
+        'user_to_talk': None,  # Não é 1-a-1, é para toda a sala
+        'encrypted_message': encrypted_message,
+        'room': room,
+        'timestamp': timestamp
+    })
 
 def send_message(username, user_to_talk, message, room, timestamp):
 

@@ -611,7 +611,7 @@ def is_user_friend():
 def on_join(data):
     """
     Evento quando usuário entra em uma sala de chat.
-    Verifica autorização e cria/recupera session key.
+    CORRIGIDO: Implementa handshake em cadeia para múltiplos participantes
     """
     room = data['room']
     username = data.get('username')
@@ -623,23 +623,39 @@ def on_join(data):
     session = Session.query.filter_by(room_name=room).first()
     
     if not session:
-        # Primeira pessoa na sala: gera nova chave
-        log_debug(f"Primeira pessoa na sala, gerando nova session_key", "server.py", "on_join")
-        emit('generate_session_key', {'room': room})
+        # PRIMEIRA PESSOA: Deve gerar a session_key
+        log_debug(f"Primeira pessoa na sala {room}, gerando nova session_key", "server.py", "on_join")
+        emit('generate_session_key', {'room': room, 'username': username})
     else:
-        # Outros usuários: recebem a chave existente
-        encrypted_session_key = session.get_session_key()
+        # OUTROS PARTICIPANTES
         session.add_participant(user_id)
+        session.is_active = True
         db.session.commit()
-        log_session_key_decrypted(username, room, "server.py", "on_join")
-        emit('receive_session_key', {
-            'encrypted_session_key': encrypted_session_key,
-            'room': room
-        })
+        
+        log_user_joined_session(username, room, "server.py", "on_join")
+        
+        # 🔗 Handshake em Cadeia:
+        # 1. Avisar os PRIMEIROS participantes que um novo entrou
+        # 2. Enviar a chave pública do novo participante
+        # 3. Primeiro re-criptografa a chave para o novo
+        # 4. Novo descriptografa com sua chave privada
+        
+        # Busca a chave pública do novo participante
+        new_user = User.query.filter_by(username=username).first()
+        new_user_public_key = new_user.get_public_key() if new_user else None
+        
+        emit('new_participant_joined', {
+            'room': room,
+            'new_username': username,
+            'new_public_key': new_user_public_key,  # ✅ Agora envia a chave pública
+            'participant_count': len(session.get_participants())
+        }, to=room, skip_sid=request.sid)  # Avisar TODOS MENOS o novo
+        
         # Notifica outros que alguém entrou
         emit('user_joined', {
             'username': username,
-            'room': room
+            'room': room,
+            'participant_count': len(session.get_participants())
         }, to=room, include_self=False)
 
 
@@ -647,7 +663,8 @@ def on_join(data):
 def on_leave(data):
     """
     Evento quando usuário sai de uma sala.
-    Remove participante e INVALIDA session key para adicionar segurança.
+    Remove participante. A sala permanece ativa se houver outros participantes.
+    MELHORADO: Suporta grupo chat (não invalida sessão, apenas remove participante)
     """
     room = data['room']
     username = data.get('username')
@@ -665,8 +682,9 @@ def on_leave(data):
             log_debug(f"Último participante saiu - sessão destruída", "server.py", "on_leave")
             db.session.delete(session)
         else:
-            # SEGURANÇA: Marca para regenerar chave
-            session.is_active = False
+            # MELHORADO: Manter session ativa se houver participantes
+            # Para grupo chat, a sessão continua valendo para os restantes
+            session.is_active = True  # ← MANTER ATIVA para outros
             log_session_invalidated(room, username, "server.py", "on_leave")
         
         db.session.commit()
@@ -676,34 +694,78 @@ def on_leave(data):
         'username': username,
         'room': room
     }, to=room, include_self=False)
-    
-    # Se há outros participantes, notifica que sessão foi invalidada
-    emit('session_invalidated', {
-        'username': username,
-        'message': f'{username} left the chat - session is no longer secure',
-        'room': room
-    }, to=room, include_self=False)
 
 
 @socketio.on('send_session_key')
 def handle_session_key(data):
     """
-    Armazena a session key no servidor (criptografada com RSA).
-    Apenas o primeiro usuário enviará a chave criptografada com a chave pública do próximo.
+    🔗 HANDSHAKE EM CADEIA - Primeira pessoa gera session_key
+    
+    FLUXO:
+    1. ALICE gera chave aleatória (32 bytes)
+    2. ALICE criptografa com RSA de BOB e envia ao servidor
+    3. Servidor armazena encrypted_key
+    4. Quando BOB recebe: descriptografa com sua chave privada ✅
+    5. Quando CARLOS entra: Servidor notifica ALICE/BOB que novo chegou
+    6. ALICE/BOB re-criptografa para CARLOS usando RSA de CARLOS
+    7. CARLOS descriptografa com sua chave privada ✅
     """
     room = data['room']
     encrypted_session_key = data['encrypted_session_key']
     username = data.get('username', 'Unknown')
     
-    session = Session(room_name=room, session_key=encrypted_session_key)
-    db.session.add(session)
+    # Armazena: a chave criptografada (pelo primeiro participante)
+    session = Session.query.filter_by(room_name=room).first()
+    if not session:
+        session = Session(room_name=room, session_key=encrypted_session_key)
+        db.session.add(session)
+    else:
+        # Se já existe, atualiza com a chave do novo participante
+        session.session_key = encrypted_session_key
+    
     db.session.commit()
     
     log_session_key_encrypted(username, room, "server.py", "handle_session_key")
+
+
+@socketio.on('send_reencrypted_session_key')
+def send_reencrypted_session_key(data):
+    """
+    🔗 HANDSHAKE EM CADEIA - Recebe chave re-criptografada de um participante
     
+    Quando ALICE re-criptografa para CARLOS, ela envia a nova chave criptografada
+    (que só CARLOS consegue descriptografar com sua chave privada)
+    """
+    room = data['room']
+    new_username = data['new_username']
+    encrypted_for_new = data['encrypted_session_key']  # Criptografada com RSA de new_username
+    
+    log_debug(
+        f"Chave re-criptografada recebida para {new_username} na sala {room}",
+        "server.py",
+        "send_reencrypted_session_key"
+    )
+    
+    # Envia APENAS para o novo participante
+    # (Servidor não sabe qual é o SID dele, então emite para o room e ele pega)
+    emit('receive_reencrypted_session_key', {
+        'encrypted_session_key': encrypted_for_new,
+        'room': room,
+        'from_username': data.get('from_username', 'participant')
+    }, to=room)
+    
+    log_debug(
+        f"Chave re-criptografada enviada para {new_username}",
+        "server.py",
+        "send_reencrypted_session_key"
+    )
+    
+    # Envia para TODOS na sala (menos quem enviou)
+    # Todos descriptografam com sua própria chave privada
     emit('receive_session_key', {
         'encrypted_session_key': encrypted_session_key,
-        'room': room
+        'room': room,
+        'from_user': username
     }, to=room, include_self=False)
 
 
@@ -711,11 +773,11 @@ def handle_session_key(data):
 def handle_send_message(data):
     """
     Recebe mensagem criptografada e armazena.
-    Apenas distribui para participantes ativos da sala.
+    Suporta tanto mensagens 1-a-1 quanto mensagens de grupo.
     """
     encrypted_message = data['encrypted_message']
     username = data['username']
-    user_to_talk = data['user_to_talk']
+    user_to_talk = data.get('user_to_talk')  # None para chats de grupo
     room = data['room']
     timestamp = data['timestamp']
     
@@ -727,21 +789,29 @@ def handle_send_message(data):
         return
     
     try:
-        sender_id, recipient_id = extract_user_ids(username, user_to_talk)
+        sender_id, recipient_id = extract_user_ids(username, user_to_talk or username)
     except:
         log_error("Falha ao processar IDs de usuários", "server.py", "handle_send_message", f"De: {username}, Para: {user_to_talk}")
         emit('error', {'message': 'Failed to process message'})
         return
     
     add_message(sender_id, recipient_id, encrypted_message, room, timestamp=timestamp)
-    log_message_encrypted(username, user_to_talk, room, "server.py", "handle_send_message")
     
+    # Log apropriado para tipo de chat
+    if user_to_talk:
+        log_message_encrypted(username, user_to_talk, room, "server.py", "handle_send_message")
+    else:
+        log_message_encrypted(username, "group", room, "server.py", "handle_send_message")
+    
+    # Distribui para TODOS na sala EXCETO o remetente
+    # (O remetente já vê a mensagem localmente)
     emit('receive_message', {
         'encrypted_message': encrypted_message,
         'username': username,
         'room': room,
         'timestamp': timestamp
     }, to=room, include_self=False)
+
 
 
 """

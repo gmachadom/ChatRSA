@@ -40,10 +40,22 @@ with st.sidebar:
         st.session_state["roomGroup"] = ""
         st.switch_page("pages/groupChatMenuScreen.py")
 
-st.header(f"Group Chat with: {", ".join(sorted(group_users))}")
+group_names = ", ".join(sorted(group_users))
+st.header(f"Group Chat with: {group_names}")
 
 request_user_public_key_group(group_users, room)
-join(username, room)
+join(username, room, hash(username) % 1000)  # ← Adicionar user_id
+
+# DEBUG: Aguardar um pouco para session key ser trocada
+import time
+time.sleep(1)
+
+# DEBUG: Verificar se session_key foi carregada
+from client.client import session_keys
+if room not in session_keys:
+    st.warning(f"⚠️ Session key still not available for {room}")
+    st.info("Waiting for key exchange between participants...")
+    time.sleep(2)
 
 # Historico das mensagens
 ok, history = get_message_history(username, room)
@@ -54,19 +66,12 @@ if not ok:
 if not history:
     st.info("No messages in this chat yet. Start the conversation!")
 else:
-    last_timestamp = history[-1]["timestamp"]
     for m in history:
         role = "user" if m["sender"] == "You" else "assistant"
-        print(f"{m["sender"]}: mandou")
-        if m["timestamp"] != last_timestamp:
-            with st.chat_message(role):
-                st.markdown(f"{m['sender']}\n\n")
-                st.markdown(
-                    f"{m['text']}\n\n"
-                    f"<span style='font-size:0.8em;color:gray'>{m['timestamp']}</span>",
-                    unsafe_allow_html=True
-                )
-        last_timestamp = m["timestamp"]
+        with st.chat_message(role):
+            st.markdown(f"**{m['sender']}**")
+            st.markdown(m['text'])
+            st.caption(m['timestamp'])
 
 msg = st.chat_input("Enter your message:")
 if msg is not None:  # usuário apertou Enter
