@@ -241,7 +241,7 @@ def register():
         log_error(f"Tentativa de registro com username duplicado", "server.py", "register", f"Username: {username}")
         return (jsonify(detail="User already exists."), HTTPStatus.CONFLICT)
     
-    user = User(username=username, password_hash=password_hash, public_key=public_key, master_key=master_key)
+    user = User(username=username, password_hash=password_hash, public_key=public_key, master_key=MasterKey(master_key=master_key, timestamp=datetime.now()))
     db.session.add(user)
     db.session.commit()
     
@@ -271,6 +271,8 @@ def get_user_master_key(username):
 
     if master_key:
         return jsonify({'message': 'User master key achieved', 'master_key': master_key}), 200
+    return None
+
 
 @app.route('/master_key_timestamp/<username>', methods=['GET'])
 def get_user_master_key_timestamp(username):

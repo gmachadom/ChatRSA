@@ -17,7 +17,7 @@ st.session_state["master_key"] = master_key
 link = pyotp.TOTP(master_key).provisioning_uri(name=st.session_state["username"], issuer_name="RSApp")
 new_qrcode = qrcode.make(link)
 new_qrcode.save("qrcode.png")
-st.image('./qrcode.png', use_column_width=True)
+st.image('./qrcode.png', use_container_width=True)
 
 st.title("Confirm that you scanned the qrcode and try to put your code here.")
 code = pyotp.TOTP(master_key)
@@ -29,10 +29,8 @@ with st.form("register_form"):
 if code.now() != auth_code:
     submitted = False
 
-object_master_key = json.dumps({'master_key': master_key, 'timestamp': datetime.now()})
-
 if submitted:
-    ok, msg = register_user(st.session_state["username"], st.session_state["password"], object_master_key)
+    ok, msg = register_user(st.session_state["username"], st.session_state["password"], master_key)
     if ok:
         st.success(msg)
         log_debug(f"Registro bem-sucedido - Redirecionando para login", "registrationScreen.py", "register_success")

@@ -669,7 +669,7 @@ def on_receive_message(data):
 
 # ---------- Autentication -------------
 
-def register_user(username, password, object_master_key):
+def register_user(username, password, master_key):
     if not username or not password:
         log_error("Tentativa de registro sem username ou password", "client.py", "register_user")
         return False, "Inform username and password."
@@ -690,7 +690,7 @@ def register_user(username, password, object_master_key):
             'username': username,
             'password': password,
             'public_key': public_key_str,
-            'master_key': object_master_key,
+            'master_key': master_key,
         })
 
     except requests.exceptions.RequestException as e:
@@ -719,7 +719,6 @@ def register_user(username, password, object_master_key):
             return False, "User already exists."
 
         return False, f"Falha na requisição."
-
 
 
 def login_user(username, password, auth_code):
