@@ -2,6 +2,8 @@ import streamlit as st
 import sys
 import os
 
+from client.client import is_master_key_expired
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
@@ -107,6 +109,10 @@ with col1:
 with col2:
     if chat_count > 0 and st.button("💌 View Chat Invitations", use_container_width=True):
         st.switch_page("pages/chatInvitationsScreen.py")
+with col3:
+
+    if is_master_key_expired(username) and st.button("Update your 2FA key!", help="We recommend users to register another 2FA key every 3 months."):
+        st.switch_page("pages/qrcodeScreen.py")
 
 st.divider()
 

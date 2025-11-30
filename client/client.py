@@ -1,3 +1,6 @@
+import pyotp
+import qrcode
+from flask import jsonify
 from flask_socketio import leave_room
 from datetime import datetime, timedelta
 
@@ -14,7 +17,7 @@ root_dir = os.path.join(current_dir, '..')
 if root_dir not in sys.path:
     sys.path.append(root_dir)
 
-from server.utils import * 
+from server.utils import *
 from logger_config import (
     log_key_generated, log_private_key_stored, log_session_key_generated,
     log_session_key_encrypted, log_session_key_decrypted,
@@ -23,7 +26,6 @@ from logger_config import (
     log_chat_invitation_sent, log_chat_invitation_accepted, log_chat_invitation_declined,
     log_user_joined_session, log_user_left_session, log_debug, log_error
 )
-
 
 sio = socketio.Client()
 
@@ -67,7 +69,8 @@ def send_friend_request(sender_username, receiver_username):
         return False, "Invalid usernames"
 
     if sender_username == receiver_username:
-        log_error("Tentativa de enviar friend request para si mesmo", "client.py", "send_friend_request", sender_username)
+        log_error("Tentativa de enviar friend request para si mesmo", "client.py", "send_friend_request",
+                  sender_username)
         return False, "You can't send friend request to yourself"
 
     try:
@@ -86,7 +89,8 @@ def send_friend_request(sender_username, receiver_username):
         log_debug("Friend request duplicado ou usuário já amigo", "client.py", "send_friend_request")
         return False, response.json().get('message', 'Error sending request')
     else:
-        log_error("Erro ao enviar friend request", "client.py", "send_friend_request", f"Status: {response.status_code}")
+        log_error("Erro ao enviar friend request", "client.py", "send_friend_request",
+                  f"Status: {response.status_code}")
         return False, f"Error: {response.status_code}"
 
 
@@ -116,7 +120,8 @@ def accept_friend_request(request_id):
         log_debug("Friend request aceito com sucesso", "client.py", "accept_friend_request")
         return True, "Friend request accepted!"
     else:
-        log_error("Erro ao aceitar friend request", "client.py", "accept_friend_request", f"Status: {response.status_code}")
+        log_error("Erro ao aceitar friend request", "client.py", "accept_friend_request",
+                  f"Status: {response.status_code}")
         return False, response.json().get('message', 'Error')
 
 
@@ -132,7 +137,8 @@ def reject_friend_request(request_id):
         log_debug("Friend request rejeitado com sucesso", "client.py", "reject_friend_request")
         return True, "Friend request rejected!"
     else:
-        log_error("Erro ao rejeitar friend request", "client.py", "reject_friend_request", f"Status: {response.status_code}")
+        log_error("Erro ao rejeitar friend request", "client.py", "reject_friend_request",
+                  f"Status: {response.status_code}")
         return False, response.json().get('message', 'Error')
 
 
@@ -154,10 +160,12 @@ def send_chat_invitation(inviter_username, invitee_username, room_id):
         log_chat_invitation_sent(inviter_username, invitee_username, room_id, "client.py", "send_chat_invitation")
         return True, "Chat invitation sent!"
     elif response.status_code == 403:
-        log_error("Tentativa de convite para chat sem amizade", "client.py", "send_chat_invitation", f"De: {inviter_username}, Para: {invitee_username}")
+        log_error("Tentativa de convite para chat sem amizade", "client.py", "send_chat_invitation",
+                  f"De: {inviter_username}, Para: {invitee_username}")
         return False, "You are not friends with this user"
     else:
-        log_error("Erro ao enviar chat invitation", "client.py", "send_chat_invitation", f"Status: {response.status_code}")
+        log_error("Erro ao enviar chat invitation", "client.py", "send_chat_invitation",
+                  f"Status: {response.status_code}")
         return False, response.json().get('message', 'Error')
 
 
@@ -173,7 +181,8 @@ def get_pending_chat_invitations(username):
         invitations_data = response.json().get('chat_invitations', [])
         return True, invitations_data
     else:
-        log_error("Erro ao recuperar chat invitations", "client.py", "get_pending_chat_invitations", f"Status: {response.status_code}")
+        log_error("Erro ao recuperar chat invitations", "client.py", "get_pending_chat_invitations",
+                  f"Status: {response.status_code}")
         return False, []
 
 
@@ -189,7 +198,8 @@ def accept_chat_invitation(invitation_id):
         log_debug("Chat invitation aceito com sucesso", "client.py", "accept_chat_invitation")
         return True, "Chat invitation accepted!"
     else:
-        log_error("Erro ao aceitar chat invitation", "client.py", "accept_chat_invitation", f"Status: {response.status_code}")
+        log_error("Erro ao aceitar chat invitation", "client.py", "accept_chat_invitation",
+                  f"Status: {response.status_code}")
         return False, response.json().get('message', 'Error')
 
 
@@ -219,7 +229,8 @@ def get_sent_invitations(username):
         invitations_data = response.json().get('sent_invitations', [])
         return True, invitations_data
     else:
-        log_error("Erro ao recuperar sent invitations", "client.py", "get_sent_invitations", f"Status: {response.status_code}")
+        log_error("Erro ao recuperar sent invitations", "client.py", "get_sent_invitations",
+                  f"Status: {response.status_code}")
         return False, []
 
 
@@ -274,10 +285,11 @@ def request_user_public_key(username_to_talk, room):
         print(f"Error retrieving {username_to_talk} public key.")
         return
 
+
 def request_user_public_key_group(group_to_talk, room):
     """
     Busca e armazena as chaves públicas de TODOS os participantes do grupo.
-    
+
     Armazena em public_keys como dicionário:
     public_keys[room] = {
         'username1': 'RSA_PUBLIC_KEY_1',
@@ -287,7 +299,7 @@ def request_user_public_key_group(group_to_talk, room):
     """
     if room not in public_keys:
         public_keys[room] = {}
-    
+
     for friend in group_to_talk:
         try:
             response = requests.get(f'http://localhost:5000/public_key/{friend}')
@@ -301,6 +313,7 @@ def request_user_public_key_group(group_to_talk, room):
         except Exception as e:
             print(f"❌ Erro ao buscar chave pública de {friend}: {e}")
 
+
 # ---------- Chat Functions -------------
 
 def get_message_history(username, room):
@@ -312,7 +325,6 @@ def get_message_history(username, room):
 
     if not response.ok:
         return False, f"Error retrieving message history for room {room} ({response.status_code})."
-
 
     message_history = response.json().get("history_messages", [])
     message_senders = response.json().get("message_senders", [])
@@ -347,6 +359,15 @@ def wait_for_new_messages(username: str, room: str, old_len: int, timeout: float
     return False
 
 
+def is_master_key_expired(username):
+    response = requests.get(f'http://localhost:5000/master_key_timestamp/{username}')
+
+    timestamp = datetime.fromisoformat(response.json().get("timestamp"))
+
+    gap_of_time = datetime.now() - timestamp
+    return gap_of_time.days > 90
+
+
 def connect_to_server():
     if not sio.connected:
         try:
@@ -354,6 +375,7 @@ def connect_to_server():
             print("Conexão bem-sucedida!")
         except Exception as e:
             print("Erro ao conectar:", e)
+
 
 def join(username, room, user_id):
     """Entra em uma sala de chat"""
@@ -383,7 +405,7 @@ def leave_room_client(room, username, user_id):
 def generate_session_key(data):
     """
     🔗 HANDSHAKE EM CADEIA - Primeira pessoa gera a session key
-    
+
     Suporta AMBOS:
     - Chat 1-a-1: public_keys[room] = STRING (chave pública do outro)
     - Chat grupo: public_keys[room] = DICT {'user1': key, 'user2': key, ...}
@@ -391,7 +413,7 @@ def generate_session_key(data):
     room = data['room']
     username = data.get('username')
     session_keys[room] = os.urandom(32)  # Gera chave aleatória de 32 bytes
-    
+
     log_session_key_generated(room, "client.py", "generate_session_key")
     
     if room in public_keys and public_keys[room]:
@@ -419,7 +441,7 @@ def generate_session_key(data):
                     'room': room,
                     'username': username
                 })
-                
+
                 log_debug(
                     f"Session key gerada e criptografada para {first_friend_name}. Aguardando...",
                     "client.py", "generate_session_key"
@@ -439,7 +461,7 @@ def generate_session_key(data):
 def on_new_participant_joined(data):
     """
     🔗 HANDSHAKE EM CADEIA - Notificação que um novo participante entrou
-    
+
     ALICE recebe essa notificação quando CARLOS entra.
     ALICE então:
     1. Descriptografa a session_key com sua chave privada (ela tem!)
@@ -449,16 +471,16 @@ def on_new_participant_joined(data):
     room = data['room']
     new_username = data['new_username']
     new_participant_key = data.get('new_public_key')
-    
+
     # Verifica se THIS CLIENT foi quem gerou a chave (é o primeiro?)
     if room in session_keys:
         # ✅ Sim, este cliente tem a chave não-criptografada em memória
-        
+
         log_debug(
             f"Novo participante entrou na sala {room}: {new_username}. Vou re-criptografar a chave...",
             "client.py", "on_new_participant_joined"
         )
-        
+
         # Se há chave pública do novo participante, usa
         if new_participant_key:
             try:
@@ -467,16 +489,16 @@ def on_new_participant_joined(data):
                     session_keys[room],
                     new_participant_key
                 )
-                
+
                 log_debug(
                     f"Session key re-criptografada para {new_username}",
                     "client.py", "on_new_participant_joined"
                 )
-                
+
                 # Armazena também a chave pública do novo participante localmente
                 if room in public_keys and isinstance(public_keys[room], dict):
                     public_keys[room][new_username] = new_participant_key
-                
+
                 # Envia ao servidor, que distribui para o novo
                 sio.emit('send_reencrypted_session_key', {
                     'room': room,
@@ -494,7 +516,6 @@ def on_new_participant_joined(data):
                 f"⚠️  Chave pública de {new_username} não foi recebida",
                 "client.py", "on_new_participant_joined"
             )
-
 
 
 @sio.on('receive_session_key')
@@ -526,35 +547,35 @@ def on_receive_session_key(data):
 def on_receive_reencrypted_session_key(data):
     """
     🔗 HANDSHAKE EM CADEIA - CARLOS recebe a chave re-criptografada
-    
+
     CARLOS (terceiro ou posterior) recebe a session_key que ALICE re-criptografou
     especialmente com sua chave pública. Apenas CARLOS consegue descriptografar.
     """
     encrypted_session_key = data['encrypted_session_key']
     room = data['room']
     from_username = data.get('from_username', 'participant')
-    
+
     try:
         # Descriptografa com sua chave privada (RSA)
         session_keys[room] = decrypt_with_private_key(
             encrypted_session_key,
             global_private_key
         )
-        
+
         log_session_key_decrypted(
             f"CARLOS (via re-encryption de {from_username})",
             room,
             "client.py",
             "on_receive_reencrypted_session_key"
         )
-        
+
         log_debug(
             f"✅ CARLOS: Recebi session_key re-criptografada e descriptografei com sucesso!",
             "client.py", "on_receive_reencrypted_session_key"
         )
-        
+
         print(f"✅ Reencrypted session key received, decrypted, and stored for room: {room}")
-        
+
     except Exception as e:
         log_error(
             f"Erro ao descriptografar session_key re-criptografada",
@@ -563,8 +584,6 @@ def on_receive_reencrypted_session_key(data):
             str(e)
         )
         print(f"❌ Failed to decrypt reencrypted session key: {e}")
-
-
 
 
 # Handler for accepted chat invitations coming from server
@@ -582,7 +601,8 @@ def on_chat_invitation_accepted(data):
             'invitee_username': invitee,
             'room_id': room
         }
-        log_debug(f"Recebido chat_invitation_accepted -> {invitee} entrou na sala {room}", "client.py", "on_chat_invitation_accepted")
+        log_debug(f"Recebido chat_invitation_accepted -> {invitee} entrou na sala {room}", "client.py",
+                  "on_chat_invitation_accepted")
         print(f"🔔 Invitation accepted: {invitee} -> room {room}")
     except Exception as e:
         log_error("Erro ao processar chat_invitation_accepted", "client.py", "on_chat_invitation_accepted", str(e))
@@ -598,11 +618,11 @@ def on_session_invalidated(data):
         room = data.get('room')
         username = data.get('username')
         message = data.get('message', f'{username} saiu do chat')
-        
+
         # Deletar chave para não tentar reutilizar
         if room in session_keys:
             del session_keys[room]
-        
+
         log_session_invalidated(room, username, "client.py", "on_session_invalidated")
         print(f"⚠️  Session invalidated: {message}")
     except Exception as e:
@@ -612,10 +632,10 @@ def on_session_invalidated(data):
 def send_message_to_group(username, group_to_talk, message, room, timestamp):
     """
     Envia mensagem para uma sala de grupo.
-    
+
     ✅ CORRETO: Envia UMA ÚNICA mensagem para a room (sala)
     ❌ ERRADO: Enviar para cada amigo individualmente (causava duplicação)
-    
+
     O servidor recebe uma mensagem e distribui para TODOS na sala.
     
     ✅ NOVO: Assina mensagem criptografada para garantir INTEGRIDADE
@@ -643,11 +663,6 @@ def send_message_to_group(username, group_to_talk, message, room, timestamp):
     })
 
 def send_message(username, user_to_talk, message, room, timestamp):
-    """
-    Envia mensagem 1-a-1 com integridade.
-    
-    ✅ NOVO: Assina mensagem criptografada para garantir INTEGRIDADE
-    """
     encrypted_message = encrypt_chacha20_message(session_keys[room], message)
     log_message_encrypted(username, user_to_talk, room, "client.py", "send_message")
     
@@ -717,7 +732,7 @@ def on_receive_message(data):
 
 # ---------- Autentication -------------
 
-def register_user(username, password):
+def register_user(username, password, master_key):
     if not username or not password:
         log_error("Tentativa de registro sem username ou password", "client.py", "register_user")
         return False, "Inform username and password."
@@ -731,11 +746,14 @@ def register_user(username, password):
     global global_private_key
     global_private_key = private_key
 
+    # TODO: chave está sendo gerada de forma aleatória, existe a chance de criar chaves iguais para diferentes usuários.
+
     try:
         response = requests.post('http://localhost:5000/register', json={
             'username': username,
             'password': password,
-            'public_key': public_key_str
+            'public_key': public_key_str,
+            'master_key': master_key,
         })
 
     except requests.exceptions.RequestException as e:
@@ -745,7 +763,7 @@ def register_user(username, password):
     if response.ok:
         encrypted_data = encrypt_private_key(private_key, password)
         save_private_key(username=username, encrypted_data=encrypted_data)
-        
+
         log_key_generated("RSA 2048-bit", "Memória + Arquivo Local", "client.py", "register_user")
         log_private_key_stored(username, "users_key/", "client.py", "register_user")
 
@@ -759,17 +777,28 @@ def register_user(username, password):
             pass
 
         # se for o caso específico de usuário já existente
-        if response.status_code == 409 :
+        if response.status_code == 409:
             log_error(f"Username já existe no servidor", "client.py", "register_user", f"Username: {username}")
             return False, "User already exists."
 
         return False, f"Falha na requisição."
 
 
-def login_user(username, password):
+def login_user(username, password, auth_code):
     if not username or not password:
         log_error("Tentativa de login sem username ou password", "client.py", "login_user")
         return False, "Inform username and password."
+
+    response = requests.get(f'http://localhost:5000/auth_code/{username}/')
+
+    code = pyotp.TOTP(response.json().get("master_key"))
+
+    if code.now() != auth_code:
+        print(f"valor de code: {code.now()}\n"
+              f"valor de auth_code: {auth_code}")
+        log_error("Tentativa de autenticar com código falhada", "client.py", "login_user")
+        return False, "Failed to authenticate."
+
     try:
         response = requests.post('http://localhost:5000/login', json={
             'username': username,
@@ -799,7 +828,7 @@ def login_user(username, password):
             detail = response.json().get("detail", None)
         except Exception:
             detail = None
-        
+
         log_error(f"Falha na autenticação do usuário", "client.py", "login_user", f"Status: {response.status_code}")
         if detail:
             return False, f"Erro do servidor: {detail}"
@@ -832,8 +861,8 @@ def chat_with_user(username, user_to_talk, room):
 def main_menu(username):
     while True:
         print("\n╔═════════════════╗")
-        print(  "  ChatRSA"  )
-        print(  "╚═════════════════╝")
+        print("  ChatRSA")
+        print("╚═════════════════╝")
         print("1 - Add user")
         print("2 - Chat with a friend")
         print("3 - Group chat")
@@ -894,7 +923,7 @@ def main_menu(username):
                     group_users.append(user)
                 else:
                     print("User not found in your friend list or already on the group.")
-            room = f"room_{'_'.join(sorted([username, *group_users ]))}"
+            room = f"room_{'_'.join(sorted([username, *group_users]))}"
             for user in group_users:
                 chat_with_user(username, user, room)
 
