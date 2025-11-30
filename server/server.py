@@ -1,3 +1,4 @@
+import json
 from http import HTTPStatus
 
 from flask import Flask, request, jsonify
@@ -130,6 +131,22 @@ class ChatInvitation(db.Model):
     def __repr__(self):
         return f'<ChatInvitation {self.inviter_id} -> {self.invitee_id} ({self.room_id})'
 
+class MasterKey(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    master_key = db.Column(db.Text, nullable=False)
+    timestamp = db.Column(db.String(200), nullable=False)
+
+    def get_master_key(self):
+        return self.master_key
+
+    def set_master_key(self, master_key):
+        self.master_key = master_key
+
+    def get_timestamp(self):
+        return self.timestamp
+
+    def set_timestamp(self, timestamp):
+        self.timestamp = timestamp
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -137,6 +154,7 @@ class User(db.Model):
     password_hash = db.Column(db.Text, nullable=False)
     public_key = db.Column(db.Text, nullable=False)
     friend_list = db.Column(db.Text, default='')
+    object_master_key = db.relationship(MasterKey)
 
     def get_user_id(self):
         return self.id
@@ -158,6 +176,13 @@ class User(db.Model):
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+
+    def get_object_master_key(self):
+        return self.object_master_key
+
+    # TODO: implementação para mudar a chave de tempos em tempos
+    # (depois de fazer o login, de 3 em 3 meses mudar a chave) pegar o time stamp da chave
+    # def set_master_key(self, master_key):
 
     def add_friend(self, friend_id):
         """Adiciona um amigo após aceitar pedido de amizade"""
@@ -209,13 +234,14 @@ def register():
     username = data['username']
     password = data['password']
     public_key = data['public_key']
+    master_key = data['master_key']
     password_hash = generate_password_hash(password)
     # error handling
     if User.query.filter_by(username=username).first():
         log_error(f"Tentativa de registro com username duplicado", "server.py", "register", f"Username: {username}")
         return (jsonify(detail="User already exists."), HTTPStatus.CONFLICT)
     
-    user = User(username=username, password_hash=password_hash, public_key=public_key)
+    user = User(username=username, password_hash=password_hash, public_key=public_key, master_key=master_key)
     db.session.add(user)
     db.session.commit()
     
@@ -225,7 +251,6 @@ def register():
     return jsonify({
         'message': 'User registered successfully',
     }), 201
-
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -240,6 +265,21 @@ def login():
     log_user_login(username, "server.py", "login")
     return jsonify({'message': 'Login successful', 'username': username}), 200
 
+@app.route('/auth_code/<username>/', methods=['GET'])
+def get_user_master_key(username):
+    master_key = User.query.filter_by(username=username).first().get_object_master_key().get_master_key()
+
+    if master_key:
+        return jsonify({'message': 'User master key achieved', 'master_key': master_key}), 200
+
+@app.route('/master_key_timestamp/<username>', methods=['GET'])
+def get_user_master_key_timestamp(username):
+    timestamp = User.query.filter_by(username=username).first().get_object_master_key().get_timestamp()
+    gap_of_time = datetime.now() - timestamp
+    if gap_of_time.days > 90:
+        return True
+    else:
+        return False
 
 @app.route('/messages/<username>/<room>', methods=['GET'])
 def get_message_history(username, room):
@@ -774,6 +814,9 @@ def handle_send_message(data):
     """
     Recebe mensagem criptografada e armazena.
     Suporta tanto mensagens 1-a-1 quanto mensagens de grupo.
+    
+    - Chat 1-a-1: user_to_talk é o nome do outro usuário
+    - Chat grupo: user_to_talk é None
     """
     encrypted_message = data['encrypted_message']
     username = data['username']
@@ -781,27 +824,39 @@ def handle_send_message(data):
     room = data['room']
     timestamp = data['timestamp']
     
-    # SEGURANÇA: Validar que a sessão ainda está ativa
-    session = Session.query.filter_by(room_name=room).first()
-    if not session or not session.is_active:
-        log_error("Tentativa de enviar mensagem em sessão inativa ou inexistente", "server.py", "handle_send_message", f"Room: {room}, Session ativa: {session.is_active if session else False}")
-        emit('error', {'message': 'Chat session has ended or is no longer active'})
-        return
+    # Determina o tipo de chat
+    is_group_chat = user_to_talk is None
     
+    # Validação de segurança depende do tipo de chat
+    if is_group_chat:
+        # Chat de grupo: valida se a Session existe e está ativa
+        session = Session.query.filter_by(room_name=room).first()
+        if not session or not session.is_active:
+            log_error("Tentativa de enviar mensagem em sessão de grupo inativa ou inexistente", "server.py", "handle_send_message", f"Room: {room}")
+            emit('error', {'message': 'Chat session has ended or is no longer active'})
+            return
+    
+    # Processa IDs de usuário
     try:
-        sender_id, recipient_id = extract_user_ids(username, user_to_talk or username)
-    except:
-        log_error("Falha ao processar IDs de usuários", "server.py", "handle_send_message", f"De: {username}, Para: {user_to_talk}")
+        if is_group_chat:
+            # Para chats de grupo, recipient_id é o mesmo do sender (apenas log)
+            sender_id, recipient_id = extract_user_ids(username, username)
+        else:
+            # Para chats 1-a-1, recipient_id é o do outro usuário
+            sender_id, recipient_id = extract_user_ids(username, user_to_talk)
+    except Exception as e:
+        log_error("Falha ao processar IDs de usuários", "server.py", "handle_send_message", f"De: {username}, Para: {user_to_talk}, Erro: {str(e)}")
         emit('error', {'message': 'Failed to process message'})
         return
     
+    # Armazena a mensagem
     add_message(sender_id, recipient_id, encrypted_message, room, timestamp=timestamp)
     
     # Log apropriado para tipo de chat
-    if user_to_talk:
-        log_message_encrypted(username, user_to_talk, room, "server.py", "handle_send_message")
-    else:
+    if is_group_chat:
         log_message_encrypted(username, "group", room, "server.py", "handle_send_message")
+    else:
+        log_message_encrypted(username, user_to_talk, room, "server.py", "handle_send_message")
     
     # Distribui para TODOS na sala EXCETO o remetente
     # (O remetente já vê a mensagem localmente)
