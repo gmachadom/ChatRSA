@@ -29,6 +29,9 @@ from logger_config import (
     log_error, log_debug
 )
 
+# ✅ NOVO: Imports para assinatura digital (INTEGRIDADE)
+from server.utils import sign_message, verify_signature
+
 load_dotenv()
 db = SQLAlchemy()
 app = Flask(__name__, static_folder="static", template_folder="templates")
@@ -771,6 +774,7 @@ def send_reencrypted_session_key(data):
     room = data['room']
     new_username = data['new_username']
     encrypted_for_new = data['encrypted_session_key']  # Criptografada com RSA de new_username
+    from_username = data.get('from_username', 'Unknown')
     
     log_debug(
         f"Chave re-criptografada recebida para {new_username} na sala {room}",
@@ -783,7 +787,7 @@ def send_reencrypted_session_key(data):
     emit('receive_reencrypted_session_key', {
         'encrypted_session_key': encrypted_for_new,
         'room': room,
-        'from_username': data.get('from_username', 'participant')
+        'from_username': from_username
     }, to=room)
     
     log_debug(
@@ -795,9 +799,9 @@ def send_reencrypted_session_key(data):
     # Envia para TODOS na sala (menos quem enviou)
     # Todos descriptografam com sua própria chave privada
     emit('receive_session_key', {
-        'encrypted_session_key': encrypted_session_key,
+        'encrypted_session_key': encrypted_for_new,
         'room': room,
-        'from_user': username
+        'from_user': from_username
     }, to=room, include_self=False)
 
 
@@ -844,6 +848,16 @@ def handle_send_message(data):
     # Armazena a mensagem
     add_message(sender_id, recipient_id, encrypted_message, room, timestamp=timestamp)
     
+    # ✅ NOVO: Assina a mensagem criptografada para garantir INTEGRIDADE
+    # O remetente assina com sua chave privada (que o servidor não tem)
+    # Por isso, já recebemos a assinatura do cliente
+    # Se o cliente NÃO enviou assinatura, criamos uma placeholder
+    signature = data.get('signature')
+    
+    if not signature:
+        log_debug("Aviso: Mensagem recebida sem assinatura de integridade", "server.py", "handle_send_message")
+        signature = ""
+    
     # Log apropriado para tipo de chat
     if is_group_chat:
         log_message_encrypted(username, "group", room, "server.py", "handle_send_message")
@@ -852,8 +866,10 @@ def handle_send_message(data):
     
     # Distribui para TODOS na sala EXCETO o remetente
     # (O remetente já vê a mensagem localmente)
+    # ✅ NOVO: Inclui assinatura para verificação de integridade
     emit('receive_message', {
         'encrypted_message': encrypted_message,
+        'signature': signature,  # ✅ Envia assinatura
         'username': username,
         'room': room,
         'timestamp': timestamp

@@ -1,11 +1,12 @@
 import pickle
+import json
 from Crypto.PublicKey import RSA
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
 import os
 import base64
 from logger_config import (
@@ -32,8 +33,8 @@ def encrypt_with_public_key(data, public_key_pem):
     public_key = serialization.load_pem_public_key(public_key_pem.encode('utf-8'))
     encrypted_data = public_key.encrypt(
         data,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+        asym_padding.OAEP(
+            mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
             algorithm=hashes.SHA256(),
             label=None
         )
@@ -60,32 +61,28 @@ def decrypt_with_private_key(encrypted_data, private_key_pem, password=None):
         log_error("Chave privada inválida ou não está no formato PEM", "utils.py", "decrypt_with_private_key")
         raise ValueError("Chave privada inválida ou não está no formato PEM.")
 
-    # Carrega a chave privada
+    # Carrega a chave privada e descriptografa os dados
     try:
         private_key = serialization.load_pem_private_key(
             private_key_pem,
             password=password.encode('utf-8') if password else None
         )
-    except ValueError as e:
-        log_error("Falha ao carregar a chave privada", "utils.py", "decrypt_with_private_key", str(e))
-        raise ValueError("Falha ao carregar a chave privada. Verifique a senha ou o formato da chave.") from e
-
-    # Descriptografa os dados
-    try:
+        
+        # Descriptografa os dados
         decrypted_data = private_key.decrypt(
             encrypted_data_bytes,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            asym_padding.OAEP(
+                mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
                 algorithm=hashes.SHA256(),
                 label=None
             )
         )
         log_debug("Dados descriptografados com RSA - chave privada utilizada", "utils.py", "decrypt_with_private_key")
+        return decrypted_data
+        
     except ValueError as e:
-        log_error("Erro na descriptografia", "utils.py", "decrypt_with_private_key", str(e))
-        raise ValueError("Erro na descriptografia: verifique os dados criptografados e a chave privada.") from e
-
-    return decrypted_data
+        log_error("Erro na descriptografia ou ao carregar chave privada", "utils.py", "decrypt_with_private_key", str(e))
+        raise ValueError("Falha na descriptografia: verifique os dados criptografados e a chave privada.") from e
 
 
 def encrypt_chacha20_message(key, message):
@@ -237,4 +234,90 @@ def recover_session_key(room):
 
     except (OSError, pickle.PickleError) as e:
         print(f"Erro ao abrir a session key criptografada: {e}")
+        return False
+    
+
+def sign_message(data, private_key_pem):
+    """
+    INTEGRIDADE: Assina dados com chave privada RSA
+    
+    Garante que a mensagem não foi alterada em trânsito.
+    Apenas o remetente (com sua chave privada) consegue assinar.
+    
+    Args:
+        data: dict ou string a assinar
+        private_key_pem: chave privada em formato PEM
+    
+    Returns:
+        assinatura em base64
+    """
+    # Normaliza dados
+    if isinstance(data, dict):
+        data_bytes = json.dumps(data, sort_keys=True).encode('utf-8')
+    elif isinstance(data, str):
+        data_bytes = data.encode('utf-8')
+    else:
+        data_bytes = data
+    
+    # Carrega chave privada
+    private_key = serialization.load_pem_private_key(
+        private_key_pem.encode('utf-8') if isinstance(private_key_pem, str) else private_key_pem,
+        password=None
+    )
+    
+    # Assina usando PKCS1v15 + SHA256
+    signature = private_key.sign(
+        data_bytes,
+        asym_padding.PKCS1v15(),
+        hashes.SHA256()
+    )
+    
+    log_debug("Mensagem assinada com RSA - integridade garantida", "utils.py", "sign_message")
+    return base64.b64encode(signature).decode('utf-8')
+
+
+def verify_signature(data, signature_b64, public_key_pem):
+    """
+    INTEGRIDADE: Verifica assinatura com chave pública RSA
+    
+    Valida se a mensagem foi alterada usando a chave pública do remetente.
+    
+    Args:
+        data: dict ou string que foi assinado
+        signature_b64: assinatura em base64
+        public_key_pem: chave pública em formato PEM
+    
+    Returns:
+        True se assinatura é válida, False caso contrário
+    """
+    try:
+        # Normaliza dados
+        if isinstance(data, dict):
+            data_bytes = json.dumps(data, sort_keys=True).encode('utf-8')
+        elif isinstance(data, str):
+            data_bytes = data.encode('utf-8')
+        else:
+            data_bytes = data
+        
+        # Carrega chave pública
+        public_key = serialization.load_pem_public_key(
+            public_key_pem.encode('utf-8') if isinstance(public_key_pem, str) else public_key_pem
+        )
+        
+        # Decodifica assinatura
+        signature = base64.b64decode(signature_b64)
+        
+        # Valida assinatura
+        public_key.verify(
+            signature,
+            data_bytes,
+            asym_padding.PKCS1v15(),
+            hashes.SHA256()
+        )
+        
+        log_debug("Assinatura verificada com sucesso - integridade confirmada", "utils.py", "verify_signature")
+        return True
+        
+    except Exception as e:
+        log_error(f"Falha ao verificar assinatura: {str(e)}", "utils.py", "verify_signature", str(e))
         return False

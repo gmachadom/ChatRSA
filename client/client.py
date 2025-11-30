@@ -415,7 +415,7 @@ def generate_session_key(data):
     session_keys[room] = os.urandom(32)  # Gera chave aleatória de 32 bytes
 
     log_session_key_generated(room, "client.py", "generate_session_key")
-
+    
     if room in public_keys and public_keys[room]:
         try:
             # Verifica o tipo de armazenamento
@@ -427,16 +427,15 @@ def generate_session_key(data):
                 # Chat 1-a-1: public_keys[room] é uma string (a chave pública)
                 first_friend_key = public_keys[room]
                 first_friend_name = data.get('user_to_talk', 'Unknown')
-
+            
             if first_friend_key:
                 encrypted_session_key_with_public_key = encrypt_with_public_key(
                     session_keys[room],
                     first_friend_key
                 )
-
-                log_session_key_encrypted(f"{first_friend_name} (segundo participante)", room, "client.py",
-                                          "generate_session_key")
-
+                
+                log_session_key_encrypted(f"{first_friend_name} (segundo participante)", room, "client.py", "generate_session_key")
+                
                 sio.emit('send_session_key', {
                     'encrypted_session_key': encrypted_session_key_with_public_key,
                     'room': room,
@@ -454,8 +453,7 @@ def generate_session_key(data):
             log_error(f"Erro ao criptografar session key", "client.py", "generate_session_key", str(e))
             print(f"❌ Erro ao criptografar: {e}")
     else:
-        log_error("Estrutura de chaves públicas inválida ou ausente", "client.py", "generate_session_key",
-                  f"Room: {room}")
+        log_error("Estrutura de chaves públicas inválida ou ausente", "client.py", "generate_session_key", f"Room: {room}")
         print(f"⚠️  Public keys not properly loaded for room {room}")
 
 
@@ -639,15 +637,27 @@ def send_message_to_group(username, group_to_talk, message, room, timestamp):
     ❌ ERRADO: Enviar para cada amigo individualmente (causava duplicação)
 
     O servidor recebe uma mensagem e distribui para TODOS na sala.
+    
+    ✅ NOVO: Assina mensagem criptografada para garantir INTEGRIDADE
     """
     encrypted_message = encrypt_chacha20_message(session_keys[room], message)
     log_message_encrypted(username, "group", room, "client.py", "send_message_to_group")
-
+    
+    # ✅ NOVO: Assina a mensagem criptografada com chave privada
+    # Isso garante que ninguém consegue alterá-la em trânsito
+    try:
+        signature = sign_message(encrypted_message, global_private_key)
+        log_debug("Mensagem assinada para integridade", "client.py", "send_message_to_group")
+    except Exception as e:
+        log_error("Erro ao assinar mensagem", "client.py", "send_message_to_group", str(e))
+        signature = ""
+    
     # Envia para a SALA (room), não para cada amigo
     sio.emit('send_message', {
         'username': username,
         'user_to_talk': None,  # Não é 1-a-1, é para toda a sala
         'encrypted_message': encrypted_message,
+        'signature': signature,  # ✅ Envia assinatura
         'room': room,
         'timestamp': timestamp
     })
@@ -655,10 +665,20 @@ def send_message_to_group(username, group_to_talk, message, room, timestamp):
 def send_message(username, user_to_talk, message, room, timestamp):
     encrypted_message = encrypt_chacha20_message(session_keys[room], message)
     log_message_encrypted(username, user_to_talk, room, "client.py", "send_message")
+    
+    # ✅ NOVO: Assina a mensagem criptografada
+    try:
+        signature = sign_message(encrypted_message, global_private_key)
+        log_debug("Mensagem assinada para integridade", "client.py", "send_message")
+    except Exception as e:
+        log_error("Erro ao assinar mensagem", "client.py", "send_message", str(e))
+        signature = ""
+    
     sio.emit('send_message', {
         'username': username,
         'user_to_talk': user_to_talk,
         'encrypted_message': encrypted_message,
+        'signature': signature,  # ✅ Envia assinatura
         'room': room,
         'timestamp': timestamp
     })
@@ -671,6 +691,40 @@ def on_receive_message(data):
     username = data['username']
     room = data['room']
     timestamp = data['timestamp']
+    signature = data.get('signature')
+    
+    # ========== VERIFICAÇÃO DE INTEGRIDADE ==========
+    if not signature:
+        print(f"⚠️ AVISO: Mensagem sem assinatura de {username}")
+        return
+    
+    try:
+        # Buscar chave pública do remetente
+        response = requests.get(f'http://localhost:5000/public_key/{username}')
+        if response.status_code != 200:
+            print(f"❌ Erro: Não foi possível obter chave pública de {username}")
+            return
+        
+        sender_public_key = response.json().get('user_public_key')
+        if not sender_public_key:
+            print(f"❌ Erro: Chave pública inválida para {username}")
+            return
+        
+        # Verificar assinatura (integridade da mensagem)
+        is_valid = verify_signature(encrypted_message, signature, sender_public_key)
+        
+        if not is_valid:
+            print(f"🔴 SEGURANÇA: Integridade comprometida! Mensagem de {username} foi alterada!")
+            print(f"   Assinatura INVÁLIDA - mensagem será IGNORADA")
+            return
+        
+        print(f"✅ Assinatura verificada: mensagem de {username} é autêntica")
+        
+    except Exception as e:
+        print(f"❌ Erro ao verificar assinatura: {str(e)}")
+        return
+    
+    # ========== DESCRIPTOGRAFIA ==========
     decrypted_message = decrypt_chacha20_message(session_keys[room], encrypted_message)
     log_message_decrypted("Usuário atual", username, room, "client.py", "on_receive_message")
     print(f"{timestamp} {username}:", decrypted_message)
