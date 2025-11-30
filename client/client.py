@@ -359,6 +359,15 @@ def wait_for_new_messages(username: str, room: str, old_len: int, timeout: float
     return False
 
 
+def is_master_key_expired(username):
+    response = requests.get(f'http://localhost:5000/master_key_timestamp/{username}')
+
+    timestamp = datetime.fromisoformat(response.json().get("timestamp"))
+
+    gap_of_time = datetime.now() - timestamp
+    return gap_of_time.days < 90
+
+
 def connect_to_server():
     if not sio.connected:
         try:

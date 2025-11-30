@@ -131,22 +131,6 @@ class ChatInvitation(db.Model):
     def __repr__(self):
         return f'<ChatInvitation {self.inviter_id} -> {self.invitee_id} ({self.room_id})'
 
-class MasterKey(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    master_key = db.Column(db.Text, nullable=False)
-    timestamp = db.Column(db.String(200), nullable=False)
-
-    def get_master_key(self):
-        return self.master_key
-
-    def set_master_key(self, master_key):
-        self.master_key = master_key
-
-    def get_timestamp(self):
-        return self.timestamp
-
-    def set_timestamp(self, timestamp):
-        self.timestamp = timestamp
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -154,7 +138,8 @@ class User(db.Model):
     password_hash = db.Column(db.Text, nullable=False)
     public_key = db.Column(db.Text, nullable=False)
     friend_list = db.Column(db.Text, default='')
-    object_master_key = db.relationship(MasterKey)
+    master_key = db.Column(db.Text, nullable=False)
+    key_timestamp = db.Column(db.DateTime, nullable=False, default=datetime.now)
 
     def get_user_id(self):
         return self.id
@@ -177,8 +162,17 @@ class User(db.Model):
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
-    def get_object_master_key(self):
-        return self.object_master_key
+    def get_master_key(self):
+        return self.master_key
+
+    def set_master_key(self, master_key):
+        self.master_key = master_key
+
+    def get_key_timestamp(self):
+        return self.key_timestamp
+
+    def set_key_timestamp(self, key_timestamp):
+        self.key_timestamp = key_timestamp
 
     # TODO: implementação para mudar a chave de tempos em tempos
     # (depois de fazer o login, de 3 em 3 meses mudar a chave) pegar o time stamp da chave
@@ -240,8 +234,8 @@ def register():
     if User.query.filter_by(username=username).first():
         log_error(f"Tentativa de registro com username duplicado", "server.py", "register", f"Username: {username}")
         return (jsonify(detail="User already exists."), HTTPStatus.CONFLICT)
-    
-    user = User(username=username, password_hash=password_hash, public_key=public_key, master_key=MasterKey(master_key=master_key, timestamp=datetime.now()))
+
+    user = User(username=username, password_hash=password_hash, public_key=public_key, master_key=master_key, key_timestamp=datetime.now())
     db.session.add(user)
     db.session.commit()
     
@@ -267,7 +261,7 @@ def login():
 
 @app.route('/auth_code/<username>/', methods=['GET'])
 def get_user_master_key(username):
-    master_key = User.query.filter_by(username=username).first().get_object_master_key().get_master_key()
+    master_key = User.query.filter_by(username=username).first().get_master_key()
 
     if master_key:
         return jsonify({'message': 'User master key achieved', 'master_key': master_key}), 200
@@ -276,12 +270,8 @@ def get_user_master_key(username):
 
 @app.route('/master_key_timestamp/<username>', methods=['GET'])
 def get_user_master_key_timestamp(username):
-    timestamp = User.query.filter_by(username=username).first().get_object_master_key().get_timestamp()
-    gap_of_time = datetime.now() - timestamp
-    if gap_of_time.days > 90:
-        return True
-    else:
-        return False
+    timestamp = User.query.filter_by(username=username).first().get_key_timestamp()
+    return jsonify({"timestamp": timestamp.isoformat()})
 
 @app.route('/messages/<username>/<room>', methods=['GET'])
 def get_message_history(username, room):

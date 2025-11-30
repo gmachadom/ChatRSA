@@ -27,16 +27,17 @@ with st.form("register_form"):
     submitted = st.form_submit_button("Done")
 
 if code.now() != auth_code:
+    log_debug(f"Authentication failed.\n{code.now()} != {auth_code}", "qrcodeScreen.py", "register_error")
     submitted = False
 
 if submitted:
     ok, msg = register_user(st.session_state["username"], st.session_state["password"], master_key)
     if ok:
         st.success(msg)
-        log_debug(f"Registro bem-sucedido - Redirecionando para login", "registrationScreen.py", "register_success")
+        log_debug(f"Registro bem-sucedido - Redirecionando para login", "qrcodeScreen.py", "register_success")
         time.sleep(2)
         del st.session_state["master_key"]
         st.switch_page("pages/loginScreen.py")
     else:
-        log_debug(f"Erro no registro - {msg}", "registrationScreen.py", "register_error")
+        log_debug(f"Erro no registro - {msg}", "qrcodeScreen.py", "register_error")
         st.error(msg)
