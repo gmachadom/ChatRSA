@@ -365,7 +365,7 @@ def is_master_key_expired(username):
     timestamp = datetime.fromisoformat(response.json().get("timestamp"))
 
     gap_of_time = datetime.now() - timestamp
-    return gap_of_time.days < 90
+    return gap_of_time.days > 90
 
 
 def connect_to_server():
