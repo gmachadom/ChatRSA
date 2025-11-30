@@ -2,6 +2,8 @@ import streamlit as st
 import time
 import sys, os
 
+from streamlit import popover
+
 # Esconde o menu padrão
 hide_sidebar_style = """
     <style>
@@ -28,11 +30,12 @@ st.header("Login")
 with st.form("login_form"):
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
+    code = st.text_input("Code")
     submitted = st.form_submit_button("Login")
 
 if submitted:
     log_debug(f"Formulário de login submetido - Username: {username}", "loginScreen.py", "form_submit")
-    ok, msg = login_user(username, password)
+    ok, msg = login_user(username, password, code)
     if ok:
         st.success(msg)
         log_debug(f"Login bem-sucedido - Redirecionando para menu principal", "loginScreen.py", "login_success")
