@@ -95,12 +95,14 @@ class Session(db.Model):
 
     def add_participant(self, user_id):
         participants = self.get_participants()
+        user_id = int(user_id)  # ✅ Garante que é inteiro
         if user_id not in participants:
             participants.append(user_id)
             self.participants = ','.join(map(str, participants))
 
     def remove_participant(self, user_id):
         participants = self.get_participants()
+        user_id = int(user_id)  # ✅ Garante que é inteiro
         if user_id in participants:
             participants.remove(user_id)
             self.participants = ','.join(map(str, participants))
@@ -595,6 +597,17 @@ def get_sent_invitations(username):
     } for inv in sent_invitations]
 
     return jsonify({'sent_invitations': invitations_data}), 200
+
+
+@app.route('/user/id/<username>', methods=['GET'])
+def get_user_id_by_username(username):
+    """Retorna o ID do usuário pelo username"""
+    user = User.query.filter_by(username=username).first()
+    
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+    
+    return jsonify({'user_id': user.id}), 200
 
 
 @app.route('/user/<username>/active_chats', methods=['GET'])

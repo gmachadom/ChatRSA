@@ -3,7 +3,7 @@ import time
 import streamlit as st
 import sys
 import os
-
+import requests
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
@@ -100,9 +100,15 @@ st.header(f"💬 Chat with {user_to_talk}")
 
 # Request public key and join room
 request_user_public_key(user_to_talk, room)
-join(username, room, hash(username) % 1000)
+    # Obter user_id real do servidor
+    
+try:
+    response = requests.get(f'http://localhost:5000/user/id/{username}')
+    user_id = response.json().get('user_id') if response.ok else hash(username) % 1000
+except:
+    user_id = hash(username) % 1000
 
-# Give socket time to exchange session keys
+join(username, room, user_id)# Give socket time to exchange session keys
 time.sleep(0.5)
 
 # Load message history

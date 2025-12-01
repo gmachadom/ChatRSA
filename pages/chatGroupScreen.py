@@ -44,9 +44,15 @@ group_names = ", ".join(sorted(group_users))
 st.header(f"Group Chat with: {group_names}")
 
 request_user_public_key_group(group_users, room)
-join(username, room, hash(username) % 1000)  # ← Adicionar user_id
-
-# DEBUG: Aguardar um pouco para session key ser trocada
+    # Obter user_id real do servidor
+    import requests
+    try:
+        response = requests.get(f'http://localhost:5000/user/id/{username}')
+        user_id = response.json().get('user_id') if response.ok else hash(username) % 1000
+    except:
+        user_id = hash(username) % 1000
+    
+    join(username, room, user_id)# DEBUG: Aguardar um pouco para session key ser trocada
 import time
 time.sleep(1)
 
