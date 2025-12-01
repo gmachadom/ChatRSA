@@ -33,7 +33,7 @@
 ```
 # Run for every chat instance
 ```bash
- python .\client\client.py
+ streamlit run .\Home.py
 ```
 
 
